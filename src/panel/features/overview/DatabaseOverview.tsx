@@ -1,8 +1,9 @@
 import type { DatabaseMeta, StoreMeta } from '../../../datasource/types'
+import type { ImportedSession } from '../../../import/types'
 import type { Connection } from '../../../shared/rpc'
 import { Badge } from '../../components/Badge'
 import { ChevronIcon, DatabaseIcon, TableIcon } from '../../components/Icons'
-import { useAppStore } from '../../store'
+import { useAppStore, type SourceMode } from '../../store'
 
 function keyLabel(store: StoreMeta): string {
   if (store.keyPath === null) return store.autoIncrement ? 'Auto-increment key' : 'Out-of-line key'
@@ -16,25 +17,30 @@ export function DatabaseOverview({
   database,
   stores,
   loading,
+  sourceMode,
+  importedSession,
 }: {
   connection: Connection
   databases: DatabaseMeta[] | null
   database?: DatabaseMeta
   stores: StoreMeta[] | null
   loading: boolean
+  sourceMode: SourceMode
+  importedSession: ImportedSession | null
 }) {
   const { setDbName, setStoreName } = useAppStore()
 
   if (!database) {
+    const context = sourceMode === 'live' ? connection.origin : importedSession?.fileName
     return (
       <div className="content-page">
         <header className="page-heading">
           <div>
-            <p className="eyebrow">Connected site</p>
+            <p className="eyebrow">{sourceMode === 'live' ? 'Connected site' : 'Imported snapshot'}</p>
             <h1>Choose a database</h1>
-            <p>{connection.origin}</p>
+            <p>{context}</p>
           </div>
-          <Badge tone="success"><span className="status-dot" /> Connected</Badge>
+          <Badge tone={sourceMode === 'live' ? 'success' : 'blue'}><span className="status-dot" /> {sourceMode === 'live' ? 'Connected' : 'Local copy'}</Badge>
         </header>
 
         {loading && <div className="overview-loading">Reading available databases…</div>}
@@ -66,9 +72,9 @@ export function DatabaseOverview({
         <div>
           <p className="eyebrow">Database overview</p>
           <h1>{database.name}</h1>
-          <p>Live data from {connection.origin}</p>
+          <p>{sourceMode === 'live' ? `Live data from ${connection.origin}` : `Imported from ${importedSession?.fileName}`}</p>
         </div>
-        <Badge tone="success"><span className="status-dot" /> Live connection</Badge>
+        <Badge tone={sourceMode === 'live' ? 'success' : 'blue'}><span className="status-dot" /> {sourceMode === 'live' ? 'Live connection' : 'Local copy'}</Badge>
       </header>
 
       <section className="metric-grid" aria-label="Database metrics">

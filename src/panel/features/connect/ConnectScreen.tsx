@@ -1,4 +1,5 @@
-import { DatabaseIcon, PlugIcon } from '../../components/Icons'
+import { Button } from '../../components/Button'
+import { DatabaseIcon, PlugIcon, UploadIcon } from '../../components/Icons'
 import type { Connection } from '../../../shared/rpc'
 
 /**
@@ -6,7 +7,15 @@ import type { Connection } from '../../../shared/rpc'
  * error, because losing the connection on navigation is how per-click activeTab
  * access is designed to work — not a malfunction.
  */
-export function ConnectScreen({ connection }: { connection: Connection }) {
+export function ConnectScreen({
+  connection,
+  onImport,
+  onOpenImported,
+}: {
+  connection: Connection
+  onImport?: () => void
+  onOpenImported?: () => void
+}) {
   const stale = connection.status === 'stale'
 
   return (
@@ -35,6 +44,14 @@ export function ConnectScreen({ connection }: { connection: Connection }) {
       {connection.error && (
         <div className="inline-error" role="alert">
           {connection.error}
+        </div>
+      )}
+      {onImport && (
+        <div className="connect-actions">
+          {onOpenImported && <Button onClick={onOpenImported}>Open imported copy</Button>}
+          <Button onClick={onImport} variant="primary">
+            <UploadIcon /> Import a Dexie export
+          </Button>
         </div>
       )}
     </main>

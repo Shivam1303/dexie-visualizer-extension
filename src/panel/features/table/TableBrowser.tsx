@@ -9,6 +9,7 @@ import { FilterPanel } from './FilterPanel'
 import { isOpaque } from '../../../shared/codec'
 import { inferColumns, type InferredColumn } from '../../../shared/columns'
 import type { DataSource, FilterRule, KeyedRow, QueryPage, SortRule, StoreMeta } from '../../../datasource/types'
+import type { SourceMode } from '../../store'
 
 const COLUMN_WIDTH = 180
 
@@ -36,11 +37,13 @@ export function TableBrowser({
   dbName,
   storeName,
   storeMeta,
+  sourceMode,
 }: {
   source: DataSource
   dbName: string
   storeName: string
   storeMeta?: StoreMeta
+  sourceMode: SourceMode
 }) {
   const [columns, setColumns] = useState<InferredColumn[]>([])
   const [result, setResult] = useState<QueryPage | null>(null)
@@ -309,6 +312,7 @@ export function TableBrowser({
           row={selectedRow}
           source={source}
           storeName={storeName}
+          sourceMode={sourceMode}
         />
       )}
     </div>

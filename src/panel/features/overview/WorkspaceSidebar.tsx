@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { DatabaseMeta, StoreMeta } from '../../../datasource/types'
+import type { ImportedSession } from '../../../import/types'
 import type { Connection } from '../../../shared/rpc'
-import { DatabaseIcon, SearchIcon, TableIcon } from '../../components/Icons'
-import { useAppStore } from '../../store'
+import { DatabaseIcon, SearchIcon, TableIcon, UploadIcon } from '../../components/Icons'
+import { useAppStore, type SourceMode } from '../../store'
 
 export function WorkspaceSidebar({
   connection,
@@ -10,12 +11,22 @@ export function WorkspaceSidebar({
   stores,
   loadingDatabases,
   loadingStores,
+  sourceMode,
+  importedSession,
+  onSourceMode,
+  onImport,
+  onRemoveImported,
 }: {
   connection: Connection
   databases: DatabaseMeta[] | null
   stores: StoreMeta[] | null
   loadingDatabases: boolean
   loadingStores: boolean
+  sourceMode: SourceMode
+  importedSession: ImportedSession | null
+  onSourceMode: (mode: SourceMode) => void
+  onImport: () => void
+  onRemoveImported: () => void
 }) {
   const { dbName, storeName, setDbName, setStoreName } = useAppStore()
   const [search, setSearch] = useState('')
@@ -36,6 +47,31 @@ export function WorkspaceSidebar({
           <span>Live Visualizer</span>
         </div>
       </div>
+
+      <div className="source-switcher" aria-label="Data source">
+        <button
+          className={sourceMode === 'live' ? 'active live' : ''}
+          disabled={connection.status !== 'connected'}
+          onClick={() => onSourceMode('live')}
+          type="button"
+        >
+          <span className="live-dot" />
+          Live site
+        </button>
+        <button
+          className={sourceMode === 'imported' ? 'active imported' : ''}
+          disabled={!importedSession}
+          onClick={() => onSourceMode('imported')}
+          type="button"
+        >
+          <span className="local-dot" />
+          Imported
+        </button>
+      </div>
+      <button className="sidebar-import" onClick={onImport} type="button">
+        <UploadIcon />
+        {importedSession ? 'Replace imported copy' : 'Import Dexie export'}
+      </button>
 
       <label className="sidebar-database">
         <span>Database</span>
@@ -99,12 +135,15 @@ export function WorkspaceSidebar({
         )}
       </nav>
 
-      <div className="sidebar-footer" title={connection.origin ?? ''}>
-        <span className="live-dot" />
+      <div className={`sidebar-footer ${sourceMode}`} title={sourceMode === 'live' ? connection.origin ?? '' : importedSession?.fileName}>
+        <span className={sourceMode === 'live' ? 'live-dot' : 'local-dot'} />
         <div>
-          <strong>Live editing</strong>
-          <span>{connection.origin}</span>
+          <strong>{sourceMode === 'live' ? 'Live editing' : 'Local copy'}</strong>
+          <span>{sourceMode === 'live' ? connection.origin : importedSession?.fileName}</span>
         </div>
+        {sourceMode === 'imported' && importedSession && (
+          <button aria-label="Remove imported copy" onClick={onRemoveImported} title="Remove imported copy" type="button">×</button>
+        )}
       </div>
     </aside>
   )

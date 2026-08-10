@@ -1,40 +1,108 @@
 import { useEffect, useMemo, useState } from 'react'
+import { ImportedDexieSource } from '../datasource/importedDexie'
 import { createRemoteBridgeSource } from '../datasource/remoteBridge'
-import type { DatabaseMeta, StoreMeta } from '../datasource/types'
-import { MSG_CONNECTION_CHANGED, MSG_GET_CONNECTION, type Connection } from '../shared/rpc'
+import type { DataSource, DatabaseMeta, StoreMeta } from '../datasource/types'
+import { deleteImportedDatabase } from '../import/database'
+import {
+  clearImportedSession,
+  IMPORTED_SESSION_KEY,
+  loadImportedSession,
+} from '../import/session'
+import type { ImportedSession } from '../import/types'
+import {
+  MSG_CONNECTION_CHANGED,
+  MSG_GET_CONNECTION,
+  NO_CONNECTION,
+  type Connection,
+} from '../shared/rpc'
 import { DatabaseIcon } from './components/Icons'
 import { ConnectScreen } from './features/connect/ConnectScreen'
+import { ImportScreen } from './features/import/ImportScreen'
 import { DatabaseOverview } from './features/overview/DatabaseOverview'
 import { WorkspaceSidebar } from './features/overview/WorkspaceSidebar'
 import { TableBrowser } from './features/table/TableBrowser'
-import { useAppStore } from './store'
+import { useAppStore, type SourceMode } from './store'
 
 export function App() {
-  const { connection, dbName, storeName, setConnection, setDbName, setStoreName } = useAppStore()
-  const source = useMemo(() => createRemoteBridgeSource(), [])
+  const {
+    connection,
+    sourceMode,
+    dbName,
+    storeName,
+    setConnection,
+    setSourceMode,
+    setDbName,
+    setStoreName,
+  } = useAppStore()
+  const remoteSource = useMemo(() => createRemoteBridgeSource(), [])
+  const [importedSession, setImportedSession] = useState<ImportedSession | null>(null)
+  const [booting, setBooting] = useState(true)
+  const [importOpen, setImportOpen] = useState(false)
   const [databases, setDatabases] = useState<DatabaseMeta[] | null>(null)
   const [stores, setStores] = useState<StoreMeta[] | null>(null)
   const [loadingDatabases, setLoadingDatabases] = useState(false)
   const [loadingStores, setLoadingStores] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const importedSource = useMemo(
+    () => (importedSession ? new ImportedDexieSource(importedSession) : null),
+    [importedSession?.storageName],
+  )
+  const source: DataSource | null = sourceMode === 'imported' ? importedSource : remoteSource
+  const sourceReady =
+    sourceMode === 'imported'
+      ? importedSession !== null && importedSource !== null
+      : connection.status === 'connected'
+  const sourceKey =
+    sourceMode === 'imported'
+      ? `imported:${importedSession?.storageName ?? 'none'}`
+      : `live:${connection.tabId}:${connection.origin}:${connection.status}`
+
   useEffect(() => {
-    // Ask for the current state (the panel may have opened after the connection was
-    // made) and then follow every change.
-    chrome.runtime
-      .sendMessage({ type: MSG_GET_CONNECTION })
-      .then((current: Connection) => current && setConnection(current))
-      .catch(() => {})
+    let active = true
+
+    Promise.all([
+      chrome.runtime
+        .sendMessage({ type: MSG_GET_CONNECTION })
+        .catch(() => ({ ...NO_CONNECTION } as Connection)),
+      loadImportedSession(),
+    ]).then(([current, imported]) => {
+      if (!active) return
+      setConnection(current ?? { ...NO_CONNECTION })
+      setImportedSession(imported)
+      setSourceMode(current?.status === 'connected' ? 'live' : imported ? 'imported' : 'live')
+      setBooting(false)
+    })
 
     const onMessage = (message: any) => {
       if (message?.type === MSG_CONNECTION_CHANGED) setConnection(message.connection)
     }
+    const onStorage = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area !== 'local' || !changes[IMPORTED_SESSION_KEY]) return
+      void loadImportedSession().then((session) => active && setImportedSession(session))
+    }
     chrome.runtime.onMessage.addListener(onMessage)
-    return () => chrome.runtime.onMessage.removeListener(onMessage)
-  }, [setConnection])
+    chrome.storage.onChanged.addListener(onStorage)
+    return () => {
+      active = false
+      chrome.runtime.onMessage.removeListener(onMessage)
+      chrome.storage.onChanged.removeListener(onStorage)
+    }
+  }, [setConnection, setSourceMode])
+
+  useEffect(
+    () => () => {
+      void importedSource?.close()
+    },
+    [importedSource],
+  )
 
   useEffect(() => {
-    if (connection.status !== 'connected') return
+    if (!sourceReady || !source) {
+      setDatabases(null)
+      setStores(null)
+      return
+    }
     let active = true
     setLoadingDatabases(true)
     setDatabases(null)
@@ -57,10 +125,10 @@ export function App() {
     return () => {
       active = false
     }
-  }, [connection.origin, connection.status, connection.tabId, source, setDbName])
+  }, [source, sourceKey, sourceReady, setDbName])
 
   useEffect(() => {
-    if (!dbName || connection.status !== 'connected') {
+    if (!dbName || !sourceReady || !source) {
       setStores(null)
       return
     }
@@ -83,20 +151,75 @@ export function App() {
     return () => {
       active = false
     }
-  }, [connection.status, dbName, source, setStoreName])
+  }, [dbName, source, sourceKey, sourceReady, setStoreName])
 
-  if (connection.status !== 'connected') return <ConnectScreen connection={connection} />
+  function changeSource(mode: SourceMode) {
+    if (mode === 'live' && connection.status !== 'connected') return
+    if (mode === 'imported' && !importedSession) {
+      setImportOpen(true)
+      return
+    }
+    setSourceMode(mode)
+  }
+
+  async function removeImportedCopy() {
+    if (!importedSession) return
+    if (!window.confirm(`Remove the imported copy of ${importedSession.databaseName}?`)) return
+    setError(null)
+    try {
+      await importedSource?.close()
+      await deleteImportedDatabase(importedSession.storageName)
+      await clearImportedSession()
+      setImportedSession(null)
+      setSourceMode('live')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The imported copy could not be removed.')
+    }
+  }
+
+  if (booting) {
+    return <main className="connect-screen"><div className="brand-mark"><DatabaseIcon /></div><h1>Opening workspace…</h1></main>
+  }
+
+  if (importOpen) {
+    return (
+      <ImportScreen
+        onCancel={sourceReady ? () => setImportOpen(false) : undefined}
+        onImported={(session) => {
+          setImportedSession(session)
+          setSourceMode('imported')
+          setImportOpen(false)
+        }}
+      />
+    )
+  }
+
+  if (!sourceReady || !source) {
+    return (
+      <ConnectScreen
+        connection={connection}
+        onImport={() => setImportOpen(true)}
+        onOpenImported={importedSession ? () => setSourceMode('imported') : undefined}
+      />
+    )
+  }
 
   const database = databases?.find((item) => item.name === dbName)
   const store = stores?.find((item) => item.name === storeName)
+  const contextLabel = sourceMode === 'live' ? connection.origin : importedSession?.fileName
 
   return (
     <div className="app-shell">
       <WorkspaceSidebar
         connection={connection}
         databases={databases}
+        importedSession={importedSession}
         loadingDatabases={loadingDatabases}
         loadingStores={loadingStores}
+        onImport={() => setImportOpen(true)}
+        onRemoveImported={() => void removeImportedCopy()}
+        onSourceMode={changeSource}
+        sourceMode={sourceMode}
         stores={stores}
       />
       <div className="workspace">
@@ -104,27 +227,40 @@ export function App() {
           <div className="database-crumb">
             <DatabaseIcon />
             <div>
-              <span>{database ? 'Current database' : 'Connected site'}</span>
-              <strong>{database?.name ?? connection.title ?? connection.origin}</strong>
+              <span>{sourceMode === 'live' ? 'Current live database' : 'Imported database'}</span>
+              <strong>{database?.name ?? contextLabel}</strong>
             </div>
             {database && <small>v{database.version}</small>}
           </div>
-          <div className="live-status" role="status" title={connection.origin ?? ''}>
-            <span className="live-dot" />
-            <span>Live editing</span>
-            <strong>{connection.origin}</strong>
+          <div className={`live-status ${sourceMode}`} role="status" title={contextLabel ?? ''}>
+            <span className={sourceMode === 'live' ? 'live-dot' : 'local-dot'} />
+            <span>{sourceMode === 'live' ? 'Live editing' : 'Local copy'}</span>
+            <strong>{contextLabel}</strong>
           </div>
         </header>
         <main className="workspace-main">
+          {sourceMode === 'imported' && (
+            <div className="local-copy-banner" role="status">
+              Changes affect only this extension-owned copy, not the original file or any website.
+            </div>
+          )}
           {error && <div className="inline-error workspace-error" role="alert">{error}</div>}
           {storeName && dbName ? (
-            <TableBrowser dbName={dbName} source={source} storeMeta={store} storeName={storeName} />
+            <TableBrowser
+              dbName={dbName}
+              source={source}
+              sourceMode={sourceMode}
+              storeMeta={store}
+              storeName={storeName}
+            />
           ) : (
             <DatabaseOverview
               connection={connection}
               database={database}
               databases={databases}
+              importedSession={importedSession}
               loading={loadingDatabases || loadingStores}
+              sourceMode={sourceMode}
               stores={stores}
             />
           )}

@@ -46,6 +46,15 @@ export function RefreshIcon(props: IconProps) {
   )
 }
 
+export function UploadIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M12 16V4M7 9l5-5 5 5" />
+      <path d="M5 14v5h14v-5" />
+    </IconBase>
+  )
+}
+
 export function CloseIcon(props: IconProps) {
   return (
     <IconBase {...props}>

@@ -3,6 +3,7 @@ import { Button } from '../../components/Button'
 import { CloseIcon } from '../../components/Icons'
 import { JsonTree } from '../../components/JsonTree'
 import type { DataSource, KeyedRow, RecordKey, RecordPatch, RowRecord } from '../../../datasource/types'
+import type { SourceMode } from '../../store'
 
 function formatKey(key: RecordKey): string {
   if (key instanceof Date) return key.toISOString()
@@ -17,6 +18,7 @@ export function RowDrawer({
   row,
   onClose,
   onChanged,
+  sourceMode,
 }: {
   source: DataSource
   dbName: string
@@ -24,6 +26,7 @@ export function RowDrawer({
   row: KeyedRow
   onClose: () => void
   onChanged: () => void
+  sourceMode: SourceMode
 }) {
   // The record as it actually exists after the last write, not the grid's snapshot.
   const [record, setRecord] = useState<RowRecord>(row.value)
@@ -121,14 +124,16 @@ export function RowDrawer({
 
         {saved && staged === 0 && !confirmingDelete && (
           <div className="saved-strip" role="status">
-            Saved to {storeName}
+            {sourceMode === 'live' ? `Saved live to ${storeName}` : 'Saved to imported local copy'}
           </div>
         )}
 
         <footer className="drawer-footer">
           {confirmingDelete ? (
             <>
-              <span className="confirm-note">Delete this record? This can't be undone.</span>
+              <span className="confirm-note">
+                {sourceMode === 'live' ? 'Delete this live record?' : 'Delete from the imported copy?'} This can't be undone.
+              </span>
               <Button compact disabled={busy} onClick={() => setConfirmingDelete(false)}>
                 Cancel
               </Button>

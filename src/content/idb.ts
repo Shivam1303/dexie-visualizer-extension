@@ -6,6 +6,7 @@
  * async call over IndexedDB, which is what makes it testable under fake-indexeddb.
  */
 import { compareValues, matchesQuery, valueAt } from '../shared/filters'
+import { applyRecordPatches } from '../shared/recordPatches'
 import type {
   DatabaseMeta,
   QueryPage,
@@ -182,46 +183,6 @@ export function queryStore(dbName: string, storeName: string, query: TableQuery)
 }
 
 /**
- * Narrow, predictable coercion: the panel edits leaves as text, but a live store
- * expects the original native type back.
- */
-function coerce(existing: unknown, next: unknown): unknown {
-  if (existing instanceof Date && typeof next === 'string') {
-    const time = Date.parse(next)
-    if (!Number.isNaN(time)) return new Date(time)
-  }
-  if (
-    typeof existing === 'number' &&
-    typeof next === 'string' &&
-    next.trim() !== '' &&
-    !Number.isNaN(Number(next))
-  ) {
-    return Number(next)
-  }
-  if (typeof existing === 'boolean' && typeof next === 'string') {
-    if (next === 'true') return true
-    if (next === 'false') return false
-  }
-  return next
-}
-
-function applyPatch(record: any, path: string[], value: unknown): void {
-  if (path.length === 0) throw new Error('A patch needs a field path.')
-  let target = record
-  for (const segment of path.slice(0, -1)) {
-    if (target === null || typeof target !== 'object') {
-      throw new Error(`Cannot patch path ${path.join('.')} — ${segment} is not an object.`)
-    }
-    target = target[segment]
-  }
-  if (target === null || typeof target !== 'object') {
-    throw new Error(`Cannot patch path ${path.join('.')} — the parent is not an object.`)
-  }
-  const leaf = path[path.length - 1]
-  target[leaf] = coerce(target[leaf], value)
-}
-
-/**
  * Read-modify-write inside one transaction, touching only the given paths.
  *
  * This is what keeps live edits safe: fields the panel never saw properly —
@@ -240,7 +201,7 @@ export function patchRecord(
     if (record === undefined) {
       throw new Error(`Record "${String(key)}" was not found in "${storeName}". It may have just been deleted.`)
     }
-    for (const patch of patches) applyPatch(record, patch.path, patch.value)
+    applyRecordPatches(record, patches)
     await request(store.keyPath === null ? store.put(record, key) : store.put(record))
     await txDone(store.transaction)
     return record as RowRecord

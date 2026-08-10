@@ -33,12 +33,22 @@ const stores: StoreMeta[] = [
 ]
 
 beforeEach(() => {
-  useAppStore.setState({ connection, dbName: 'ShopDB', storeName: null })
+  useAppStore.setState({ connection, sourceMode: 'live', dbName: 'ShopDB', storeName: null })
 })
 
 afterEach(cleanup)
 
 describe('full-page workspace', () => {
+  it('clears database and store selections when changing data source', () => {
+    useAppStore.setState({ sourceMode: 'live', dbName: 'ShopDB', storeName: 'users' })
+    useAppStore.getState().setSourceMode('imported')
+    expect(useAppStore.getState()).toMatchObject({
+      sourceMode: 'imported',
+      dbName: null,
+      storeName: null,
+    })
+  })
+
   it('summarizes the live database and opens a store from its overview card', () => {
     render(
       <DatabaseOverview
@@ -47,6 +57,8 @@ describe('full-page workspace', () => {
         databases={[{ name: 'ShopDB', version: 4 }]}
         loading={false}
         stores={stores}
+        sourceMode="live"
+        importedSession={null}
       />,
     )
 
@@ -64,6 +76,11 @@ describe('full-page workspace', () => {
         loadingDatabases={false}
         loadingStores={false}
         stores={stores}
+        sourceMode="live"
+        importedSession={null}
+        onSourceMode={() => undefined}
+        onImport={() => undefined}
+        onRemoveImported={() => undefined}
       />,
     )
 
