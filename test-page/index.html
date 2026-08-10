@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>IndexedDB test page — Dexie Visualizer</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 46rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.6; }
+      code { background: #f2f2f5; padding: 0.1rem 0.35rem; border-radius: 4px; }
+      button { font: inherit; padding: 0.5rem 0.9rem; border-radius: 6px; border: 1px solid #ccc; cursor: pointer; }
+      #status { margin-top: 1rem; color: #444; }
+    </style>
+  </head>
+  <body>
+    <h1>IndexedDB test page</h1>
+    <p>
+      Seeds a database with the awkward cases the extension has to survive: real
+      <code>Date</code> objects, a <code>Blob</code>, nested objects and arrays, an
+      out-of-line auto-increment store, and a store with a compound key.
+    </p>
+    <p>Open this page, click the extension icon, and browse <code>DvxTestDB</code>.</p>
+    <button id="reseed">Re-seed database</button>
+    <p id="status">Seeding…</p>
+
+    <script>
+      const DB_NAME = 'DvxTestDB'
+
+      function seed() {
+        return new Promise((resolve, reject) => {
+          const del = indexedDB.deleteDatabase(DB_NAME)
+          del.onblocked = del.onerror = del.onsuccess = () => {
+            const open = indexedDB.open(DB_NAME, 1)
+            open.onupgradeneeded = () => {
+              const db = open.result
+              const products = db.createObjectStore('product', { keyPath: 'uuid' })
+              products.createIndex('categoryId', 'categoryId', { unique: false })
+              db.createObjectStore('logs', { autoIncrement: true })
+              db.createObjectStore('settings', { keyPath: ['scope', 'name'] })
+            }
+            open.onsuccess = () => {
+              const db = open.result
+              const tx = db.transaction(['product', 'logs', 'settings'], 'readwrite')
+              const products = tx.objectStore('product')
+              for (let i = 0; i < 120; i += 1) {
+                products.put({
+                  uuid: `u${String(i).padStart(3, '0')}`,
+                  name: i % 2 ? `Latte ${i}` : `Mocha ${i}`,
+                  price: Number((i * 1.35).toFixed(2)),
+                  active: i % 3 !== 0,
+                  categoryId: i % 4,
+                  createdAt: new Date(Date.UTC(2026, 0, (i % 28) + 1)),
+                  category: { id: i % 4, name: ['Hot', 'Cold', 'Food', 'Other'][i % 4] },
+                  tags: ['a', 'b', 'c'].slice(0, (i % 3) + 1),
+                  thumbnail: i % 10 === 0 ? new Blob(['fake-image-bytes'], { type: 'image/png' }) : null,
+                })
+              }
+              const logs = tx.objectStore('logs')
+              for (let i = 0; i < 8; i += 1) logs.put({ msg: `event ${i}`, at: new Date() })
+              tx.objectStore('settings').put({ scope: 'ui', name: 'theme', value: 'dark' })
+              tx.objectStore('settings').put({ scope: 'ui', name: 'density', value: 'compact' })
+              tx.oncomplete = () => { db.close(); resolve() }
+              tx.onerror = () => reject(tx.error)
+            }
+            open.onerror = () => reject(open.error)
+          }
+        })
+      }
+
+      const status = document.getElementById('status')
+      const run = () => {
+        status.textContent = 'Seeding…'
+        seed().then(
+          () => { status.textContent = 'Seeded DvxTestDB: product (120), logs (8), settings (2).' },
+          (error) => { status.textContent = `Failed: ${error?.message ?? error}` },
+        )
+      }
+      document.getElementById('reseed').addEventListener('click', run)
+      run()
+    </script>
+  </body>
+</html>
