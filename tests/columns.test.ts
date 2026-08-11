@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { inferColumns } from '../src/shared/columns'
+import { makePreviewValue } from '../src/shared/rowPreview'
 
 describe('inferColumns', () => {
   it('unions keys across rows in first-seen order', () => {
@@ -29,6 +30,17 @@ describe('inferColumns', () => {
     const columns = inferColumns([{ list: [1], obj: { x: 1 } }])
     expect(columns.find((column) => column.key === 'list')!.type).toBe('array')
     expect(columns.find((column) => column.key === 'obj')!.type).toBe('object')
+  })
+
+  it('infers types from lightweight row previews', () => {
+    const columns = inferColumns([
+      {
+        list: makePreviewValue('array', 3),
+        obj: makePreviewValue('object', 2),
+        blob: makePreviewValue('Blob', 100),
+      },
+    ])
+    expect(columns.map((column) => column.type)).toEqual(['array', 'object', 'binary'])
   })
 
   it('falls back to string when a column mixes date and string', () => {

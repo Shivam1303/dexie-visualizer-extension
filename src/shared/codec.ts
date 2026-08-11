@@ -11,6 +11,8 @@
  * ever written back.
  */
 
+import { isPreviewValue, makePreviewValue } from './rowPreview'
+
 // Distinctive enough that a real record key is very unlikely to collide with it.
 const TAG = '__dvxT'
 const OPAQUE = Symbol.for('dvx.opaque')
@@ -26,6 +28,8 @@ export function encode(value: any): any {
   if (value === null) return null
   if (typeof value === 'bigint') return { [TAG]: 'bigint', v: value.toString() }
   if (typeof value !== 'object') return value
+
+  if (isPreviewValue(value)) return { [TAG]: 'preview', kind: value.kind, size: value.size }
 
   if (value instanceof Date) return { [TAG]: 'date', v: value.toISOString() }
   if (value instanceof Map) {
@@ -62,6 +66,8 @@ export function decode(value: any): any {
       return new Set(value.v.map(decode))
     case 'opaque':
       return { [OPAQUE]: true, kind: value.kind, size: value.size, mime: value.mime }
+    case 'preview':
+      return makePreviewValue(value.kind, value.size)
   }
 
   const out: Record<string, any> = {}

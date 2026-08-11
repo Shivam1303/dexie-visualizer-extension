@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { decode, encode, isOpaque } from '../src/shared/codec'
+import { isPreviewValue, makePreviewValue } from '../src/shared/rowPreview'
 
 // Mirrors what chrome.runtime.sendMessage actually does to a payload.
 const round = (value: unknown) => decode(JSON.parse(JSON.stringify(encode(value))))
@@ -32,6 +33,12 @@ describe('codec', () => {
   it('round-trips BigInt', () => {
     const out: any = round({ big: 9007199254740993n })
     expect(out.big).toBe(9007199254740993n)
+  })
+
+  it('round-trips lightweight collection previews', () => {
+    const out: any = round({ items: makePreviewValue('array', 25) })
+    expect(isPreviewValue(out.items)).toBe(true)
+    expect(out.items).toMatchObject({ kind: 'array', size: 25 })
   })
 
   it('marks binary values opaque rather than corrupting them', () => {

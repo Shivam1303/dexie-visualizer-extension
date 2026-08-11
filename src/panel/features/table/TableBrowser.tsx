@@ -1,4 +1,10 @@
-import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table'
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+  type ColumnSizingState,
+} from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '../../components/Badge'
@@ -7,11 +13,15 @@ import { RefreshIcon, SearchIcon } from '../../components/Icons'
 import { RowDrawer } from '../detail/RowDrawer'
 import { FilterPanel } from './FilterPanel'
 import { isOpaque } from '../../../shared/codec'
+import { isPreviewValue } from '../../../shared/rowPreview'
 import { inferColumns, type InferredColumn } from '../../../shared/columns'
 import type { DataSource, FilterRule, KeyedRow, QueryPage, SortRule, StoreMeta } from '../../../datasource/types'
 import type { SourceMode } from '../../store'
 
-const COLUMN_WIDTH = 180
+const DEFAULT_COLUMN_WIDTH = 180
+const MIN_COLUMN_WIDTH = 96
+const MAX_COLUMN_WIDTH = 960
+const COLUMN_RESIZE_STEP = 24
 
 function useDebouncedValue<T>(value: T, delay = 250): T {
   const [debounced, setDebounced] = useState(value)
@@ -24,6 +34,11 @@ function useDebouncedValue<T>(value: T, delay = 250): T {
 
 function cellValue(value: unknown) {
   if (isOpaque(value)) return <Badge tone="neutral">{value.kind}</Badge>
+  if (isPreviewValue(value)) {
+    if (value.kind === 'array') return <Badge tone="purple">[{value.size} items]</Badge>
+    if (value.kind === 'object') return <Badge tone="blue">{'{object}'}</Badge>
+    return <Badge tone="neutral">{value.kind}</Badge>
+  }
   if (value instanceof Date) return value.toISOString()
   if (Array.isArray(value)) return <Badge tone="purple">[{value.length} items]</Badge>
   if (value && typeof value === 'object') return <Badge tone="blue">{'{object}'}</Badge>
@@ -58,6 +73,7 @@ export function TableBrowser({
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [selectedRow, setSelectedRow] = useState<KeyedRow | null>(null)
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([])
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({})
   // Bumped after a write so the grid re-reads the real post-write state.
   const [reloadToken, setReloadToken] = useState(0)
 
@@ -70,10 +86,11 @@ export function TableBrowser({
     setError(null)
     setSearch('')
     setSort(undefined)
-    setFilters([])
+    setFilters((current) => (current.length === 0 ? current : []))
     setPage(0)
     setSelectedRow(null)
     setHiddenColumns([])
+    setColumnSizing({})
 
     let active = true
     source
@@ -86,24 +103,37 @@ export function TableBrowser({
     }
   }, [dbName, storeName, source])
 
-  useEffect(() => setPage(0), [debouncedSearch, filters, sort])
-
   useEffect(() => {
     let active = true
+    const controller = new AbortController()
     setError(null)
     setLoading(true)
 
     source
-      .query(dbName, storeName, {
-        page,
-        pageSize,
-        search: debouncedSearch,
-        ...(sort ? { sort } : {}),
-        filters,
-      })
-      .then((next) => active && setResult(next))
-      .catch((cause: Error) => {
+      .query(
+        dbName,
+        storeName,
+        {
+          page,
+          pageSize,
+          search: debouncedSearch,
+          ...(sort ? { sort } : {}),
+          filters,
+        },
+        { signal: controller.signal },
+      )
+      .then((next) => {
         if (!active) return
+        const lastPage = Math.max(0, Math.ceil(next.total / pageSize) - 1)
+        if (page > lastPage) {
+          setPage(lastPage)
+          return
+        }
+        setResult(next)
+        scrollRef.current?.scrollTo({ top: 0 })
+      })
+      .catch((cause: Error) => {
+        if (!active || cause.name === 'AbortError') return
         setError(cause.message)
         setResult(null)
       })
@@ -111,6 +141,7 @@ export function TableBrowser({
 
     return () => {
       active = false
+      controller.abort()
     }
   }, [dbName, storeName, source, page, pageSize, debouncedSearch, sort, filters, reloadToken])
 
@@ -125,6 +156,9 @@ export function TableBrowser({
         accessorFn: (row) => row[column.key],
         header: column.key,
         cell: ({ getValue }) => cellValue(getValue()),
+        size: DEFAULT_COLUMN_WIDTH,
+        minSize: MIN_COLUMN_WIDTH,
+        maxSize: MAX_COLUMN_WIDTH,
       })),
     [visibleColumnKey],
   )
@@ -132,7 +166,10 @@ export function TableBrowser({
   const reactTable = useReactTable({
     data: rowValues,
     columns: columnDefs,
+    columnResizeMode: 'onChange',
     getCoreRowModel: getCoreRowModel(),
+    onColumnSizingChange: setColumnSizing,
+    state: { columnSizing },
   })
   const rows = reactTable.getRowModel().rows
 
@@ -143,16 +180,27 @@ export function TableBrowser({
     overscan: 8,
   })
 
-  const gridWidth = Math.max(visibleColumns.length * COLUMN_WIDTH, 1)
-  const template = `repeat(${visibleColumns.length}, ${COLUMN_WIDTH}px)`
+  const visibleLeafColumns = reactTable.getVisibleLeafColumns()
+  const gridWidth = Math.max(reactTable.getTotalSize(), 1)
+  const template = visibleLeafColumns.length > 0
+    ? visibleLeafColumns.map((column) => `${column.getSize()}px`).join(' ')
+    : '1px'
   const pageCount = result ? Math.max(1, Math.ceil(result.total / pageSize)) : 1
 
   function cycleSort(field: string) {
+    setPage(0)
     setSort((current) => {
       if (!current || current.field !== field) return { field, direction: 'asc' }
       if (current.direction === 'asc') return { field, direction: 'desc' }
       return undefined
     })
+  }
+
+  function resizeColumn(columnId: string, size: number) {
+    setColumnSizing((current) => ({
+      ...current,
+      [columnId]: Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, size)),
+    }))
   }
 
   return (
@@ -173,7 +221,10 @@ export function TableBrowser({
         <label className="global-search">
           <SearchIcon />
           <input
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setPage(0)
+              setSearch(event.target.value)
+            }}
             placeholder="Search this store, including nested values…"
             value={search}
           />
@@ -224,7 +275,14 @@ export function TableBrowser({
       </div>
 
       {filtersOpen && columns.length > 0 && (
-        <FilterPanel columns={columns} filters={filters} onChange={setFilters} />
+        <FilterPanel
+          columns={columns}
+          filters={filters}
+          onChange={(next) => {
+            setPage(0)
+            setFilters(next)
+          }}
+        />
       )}
 
       {error && (
@@ -233,17 +291,56 @@ export function TableBrowser({
         </div>
       )}
 
-      <div className="data-grid-shell">
+      <div aria-busy={loading} className="data-grid-shell">
         <div className="data-grid-header-viewport" ref={headerScrollRef}>
           <div
             className="data-grid-header"
             style={{ gridTemplateColumns: template, width: `${gridWidth}px` }}
           >
             {reactTable.getHeaderGroups()[0]?.headers.map((header, index) => (
-              <button className={index === 0 ? 'pinned-column' : ''} key={header.id} onClick={() => cycleSort(header.id)} type="button">
-                <span>{flexRender(header.column.columnDef.header, header.getContext())}</span>
-                <small>{sort?.field === header.id ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</small>
-              </button>
+              <div
+                aria-sort={sort?.field === header.id ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+                className={`data-grid-header-cell ${index === 0 ? 'pinned-column' : ''}`}
+                key={header.id}
+                role="columnheader"
+              >
+                <button
+                  aria-label={`Sort by ${header.id}`}
+                  className="column-sort"
+                  onClick={() => cycleSort(header.id)}
+                  type="button"
+                >
+                  <span>{flexRender(header.column.columnDef.header, header.getContext())}</span>
+                  <small aria-hidden="true">
+                    {sort?.field === header.id ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}
+                  </small>
+                </button>
+                <div
+                  aria-label={`Resize ${header.id} column`}
+                  aria-orientation="vertical"
+                  aria-valuemax={MAX_COLUMN_WIDTH}
+                  aria-valuemin={MIN_COLUMN_WIDTH}
+                  aria-valuenow={header.getSize()}
+                  className={`column-resizer ${header.column.getIsResizing() ? 'is-resizing' : ''}`}
+                  onDoubleClick={() => header.column.resetSize()}
+                  onKeyDown={(event) => {
+                    let nextSize = header.getSize()
+                    if (event.key === 'ArrowLeft') nextSize -= COLUMN_RESIZE_STEP
+                    else if (event.key === 'ArrowRight') nextSize += COLUMN_RESIZE_STEP
+                    else if (event.key === 'Home') nextSize = MIN_COLUMN_WIDTH
+                    else if (event.key === 'End') nextSize = MAX_COLUMN_WIDTH
+                    else return
+                    event.preventDefault()
+                    event.stopPropagation()
+                    resizeColumn(header.id, nextSize)
+                  }}
+                  onMouseDown={header.getResizeHandler()}
+                  onTouchStart={header.getResizeHandler()}
+                  role="separator"
+                  tabIndex={0}
+                  title="Drag to resize; double-click to reset"
+                />
+              </div>
             ))}
           </div>
         </div>
@@ -257,8 +354,8 @@ export function TableBrowser({
           }}
           ref={scrollRef}
         >
-          {loading && <div className="grid-message">Reading IndexedDB…</div>}
-          {result && result.rows.length === 0 && <div className="grid-message">No rows match this query.</div>}
+          {loading && <div aria-live="polite" className="grid-message" role="status">Reading IndexedDB…</div>}
+          {!loading && result && result.rows.length === 0 && <div className="grid-message">No rows match this query.</div>}
           <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative', width: `${gridWidth}px` }}>
             {virtualizer.getVirtualItems().map((virtualRow) => {
               const row = rows[virtualRow.index]

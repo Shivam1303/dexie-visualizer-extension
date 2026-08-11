@@ -3,6 +3,7 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { StoreMeta } from '../src/datasource/types'
+import { WorkspaceHeader } from '../src/panel/components/WorkspaceHeader'
 import { DatabaseOverview } from '../src/panel/features/overview/DatabaseOverview'
 import { WorkspaceSidebar } from '../src/panel/features/overview/WorkspaceSidebar'
 import { useAppStore } from '../src/panel/store'
@@ -39,6 +40,22 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('full-page workspace', () => {
+  it('offers a way back to the database overview while browsing a table', () => {
+    useAppStore.setState({ storeName: 'users' })
+
+    render(
+      <WorkspaceHeader
+        contextDisplay="shop.example"
+        contextLabel="https://shop.example"
+        onBackToOverview={() => useAppStore.getState().setStoreName(null)}
+        sourceMode="live"
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to overview' }))
+    expect(useAppStore.getState().storeName).toBeNull()
+  })
+
   it('clears database and store selections when changing data source', () => {
     useAppStore.setState({ sourceMode: 'live', dbName: 'ShopDB', storeName: 'users' })
     useAppStore.getState().setSourceMode('imported')

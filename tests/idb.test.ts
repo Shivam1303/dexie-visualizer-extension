@@ -2,12 +2,14 @@ import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   deleteRecord,
+  getRecord,
   listDatabases,
   listStores,
   patchRecord,
   queryStore,
   sampleRows,
 } from '../src/content/idb'
+import { isPreviewValue } from '../src/shared/rowPreview'
 
 const DB = 'POSdb_test'
 
@@ -111,6 +113,47 @@ describe('queryStore', () => {
     const page = await queryStore(DB, 'product', { page: 2, pageSize: 10 })
     expect(page.rows).toHaveLength(5)
     expect(page.rows[0].key).toBe('u20')
+  })
+
+  it('streams an unsorted filtered page while preserving primary-key order', async () => {
+    const page = await queryStore(DB, 'product', {
+      page: 1,
+      pageSize: 3,
+      search: 'Latte',
+    })
+    expect(page.total).toBe(12)
+    expect(page.rows.map((row) => row.key)).toEqual(['u07', 'u09', 'u11'])
+  })
+
+  it('uses an indexed numeric range for matching sort and filter fields', async () => {
+    const page = await queryStore(DB, 'product', {
+      page: 0,
+      pageSize: 20,
+      sort: { field: 'categoryId', direction: 'desc' },
+      filters: [{ field: 'categoryId', kind: 'number', min: 1, max: 1 }],
+    })
+    expect(page.total).toBe(8)
+    expect(page.rows.every((row) => row.value.categoryId === 1)).toBe(true)
+  })
+
+  it('returns lightweight page previews and fetches full records by key', async () => {
+    const page = await queryStore(DB, 'product', { page: 0, pageSize: 1 })
+    expect(isPreviewValue(page.rows[0].value.meta)).toBe(true)
+    expect(await getRecord(DB, 'product', page.rows[0].key)).toMatchObject({
+      meta: { tags: ['a', 'b'] },
+    })
+  })
+
+  it('cooperatively cancels a scan superseded by a newer query', async () => {
+    let checks = 0
+    await expect(
+      queryStore(
+        DB,
+        'product',
+        { page: 0, pageSize: 10, search: 'Latte' },
+        { isCancelled: () => (checks += 1) > 3 },
+      ),
+    ).rejects.toMatchObject({ name: 'AbortError' })
   })
 
   it('loads a page beyond 100,000 rows without scanning the whole store', async () => {

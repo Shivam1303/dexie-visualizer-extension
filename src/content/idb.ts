@@ -6,6 +6,8 @@
  * async call over IndexedDB, which is what makes it testable under fake-indexeddb.
  */
 import { compareValues, matchesQuery, valueAt } from '../shared/filters'
+import { abortError } from '../shared/cancellation'
+import { previewRecord } from '../shared/rowPreview'
 import { applyRecordPatches } from '../shared/recordPatches'
 import type {
   DatabaseMeta,
@@ -120,7 +122,7 @@ export function sampleRows(dbName: string, storeName: string, limit = 200): Prom
           resolve(rows)
           return
         }
-        rows.push(cursor.value)
+        rows.push(previewRecord(cursor.value))
         cursor.continue()
       }
       cursorReq.onerror = () => reject(cursorReq.error)
@@ -128,19 +130,50 @@ export function sampleRows(dbName: string, storeName: string, limit = 200): Prom
   })
 }
 
+interface QueryControl {
+  isCancelled?: () => boolean
+}
+
+export function getRecord(dbName: string, storeName: string, key: RecordKey): Promise<RowRecord> {
+  return withDb(dbName, async (db) => {
+    const record = await request(storeOf(db, storeName, 'readonly').get(key))
+    if (record === undefined) {
+      throw new Error(`Record "${String(key)}" was not found in "${storeName}". It may have just been deleted.`)
+    }
+    return record
+  })
+}
+
 function canPageWithCursor(query: TableQuery): boolean {
   return !query.sort && !query.search?.trim() && !query.filters?.length
 }
 
-function readCursorPage(store: IDBObjectStore, start: number, pageSize: number): Promise<QueryPage['rows']> {
+type CursorSource = IDBObjectStore | IDBIndex
+
+function ensureActive(control: QueryControl): void {
+  if (control.isCancelled?.()) throw abortError()
+}
+
+function readCursorPage(
+  source: CursorSource,
+  start: number,
+  pageSize: number,
+  direction: IDBCursorDirection,
+  control: QueryControl,
+  range?: IDBKeyRange,
+): Promise<QueryPage['rows']> {
   return new Promise<QueryPage['rows']>((resolve, reject) => {
     const rows: QueryPage['rows'] = []
-    const cursorReq = store.openCursor()
+    const cursorReq = source.openCursor(range, direction)
     let positioned = start === 0
 
     cursorReq.onsuccess = () => {
+      if (control.isCancelled?.()) {
+        reject(abortError())
+        return
+      }
       const cursor = cursorReq.result
-      if (!cursor || rows.length >= pageSize) {
+      if (!cursor) {
         resolve(rows)
         return
       }
@@ -149,30 +182,157 @@ function readCursorPage(store: IDBObjectStore, start: number, pageSize: number):
         cursor.advance(start)
         return
       }
-      rows.push({ key: cursor.primaryKey, value: cursor.value })
+      rows.push({ key: cursor.primaryKey, value: previewRecord(cursor.value) })
+      if (rows.length >= pageSize) {
+        resolve(rows)
+        return
+      }
       cursor.continue()
     }
     cursorReq.onerror = () => reject(cursorReq.error)
   })
 }
 
+function readFilteredPage(
+  store: IDBObjectStore,
+  query: TableQuery,
+  start: number,
+  pageSize: number,
+  control: QueryControl,
+): Promise<{ rows: QueryPage['rows']; total: number }> {
+  return new Promise((resolve, reject) => {
+    const rows: QueryPage['rows'] = []
+    let total = 0
+    const cursorReq = store.openCursor()
+
+    cursorReq.onsuccess = () => {
+      if (control.isCancelled?.()) {
+        reject(abortError())
+        return
+      }
+      const cursor = cursorReq.result
+      if (!cursor) {
+        resolve({ rows, total })
+        return
+      }
+      if (matchesQuery(cursor.value, query)) {
+        if (total >= start && rows.length < pageSize) {
+          rows.push({ key: cursor.primaryKey, value: previewRecord(cursor.value) })
+        }
+        total += 1
+      }
+      cursor.continue()
+    }
+    cursorReq.onerror = () => reject(cursorReq.error)
+  })
+}
+
+function sourceForSort(
+  store: IDBObjectStore,
+  field: string,
+): { source: CursorSource; complete: boolean } | null {
+  if (typeof store.keyPath === 'string' && store.keyPath === field) {
+    return { source: store, complete: true }
+  }
+  for (const indexName of store.indexNames) {
+    const index = store.index(indexName)
+    if (!index.multiEntry && typeof index.keyPath === 'string' && index.keyPath === field) {
+      return { source: index, complete: false }
+    }
+  }
+  return null
+}
+
+function numericRange(query: TableQuery): IDBKeyRange | undefined {
+  if (!query.sort || query.filters?.length !== 1 || query.search?.trim()) return undefined
+  const filter = query.filters[0]
+  if (filter.kind !== 'number' || filter.field !== query.sort.field) return undefined
+  if (filter.min !== undefined && filter.max !== undefined) {
+    if (filter.min > filter.max) return undefined
+    return IDBKeyRange.bound(filter.min, filter.max)
+  }
+  if (filter.min !== undefined) return IDBKeyRange.lowerBound(filter.min)
+  if (filter.max !== undefined) return IDBKeyRange.upperBound(filter.max)
+  return undefined
+}
+
+async function queryIndexedSort(
+  db: IDBDatabase,
+  storeName: string,
+  query: TableQuery,
+  control: QueryControl,
+): Promise<QueryPage | null> {
+  if (!query.sort || query.search?.trim() || (query.filters?.length && !numericRange(query))) return null
+
+  const tx = db.transaction(storeName, 'readonly')
+  const store = tx.objectStore(storeName)
+  const plan = sourceForSort(store, query.sort.field)
+  if (!plan) return null
+
+  const range = numericRange(query)
+  const direction = query.sort.direction === 'desc' ? 'prev' : 'next'
+  const start = query.page * query.pageSize
+  ensureActive(control)
+
+  if (range) {
+    const [total, rows] = await Promise.all([
+      request(plan.source.count(range)),
+      readCursorPage(plan.source, start, query.pageSize, direction, control, range),
+    ])
+    return { rows, total, page: query.page, pageSize: query.pageSize }
+  }
+
+  const indexedTotalPromise = plan.complete
+    ? Promise.resolve<number | undefined>(undefined)
+    : request(plan.source.count())
+  const [total, rows, indexedTotal] = await Promise.all([
+    request(store.count()),
+    readCursorPage(plan.source, start, query.pageSize, direction, control),
+    indexedTotalPromise,
+  ])
+  if (indexedTotal !== undefined && indexedTotal !== total) return null
+  return { rows, total, page: query.page, pageSize: query.pageSize }
+}
+
 /**
- * Plain browsing uses the IndexedDB cursor's native key order and skips directly
- * to the requested page. Search, filters, and custom sorting still need a full
- * scan; that path keeps only {key, sortValue} tuples and hydrates one page.
+ * Plain and indexed browsing skip directly to the requested page. Unsorted
+ * filters stream through the store while retaining only one page. Arbitrary
+ * non-indexed sorting keeps compact key tuples and hydrates just that page.
  */
-export function queryStore(dbName: string, storeName: string, query: TableQuery): Promise<QueryPage> {
+export function queryStore(
+  dbName: string,
+  storeName: string,
+  query: TableQuery,
+  control: QueryControl = {},
+): Promise<QueryPage> {
   const page = Math.max(0, query.page ?? 0)
   const pageSize = Math.max(1, query.pageSize ?? 50)
   const normalized: TableQuery = { ...query, page, pageSize }
 
   return withDb(dbName, async (db) => {
+    ensureActive(control)
+    const indexed = await queryIndexedSort(db, storeName, normalized, control)
+    if (indexed) return indexed
+
+    const start = page * pageSize
     if (canPageWithCursor(normalized)) {
-      const start = page * pageSize
+      const tx = db.transaction(storeName, 'readonly')
+      const store = tx.objectStore(storeName)
       const [total, rows] = await Promise.all([
-        request(storeOf(db, storeName, 'readonly').count()),
-        readCursorPage(storeOf(db, storeName, 'readonly'), start, pageSize),
+        request(store.count()),
+        readCursorPage(store, start, pageSize, 'next', control),
       ])
+      return { rows, total, page, pageSize }
+    }
+
+    if (!normalized.sort) {
+      const { rows, total } = await readFilteredPage(
+        storeOf(db, storeName, 'readonly'),
+        normalized,
+        start,
+        pageSize,
+        control,
+      )
       return { rows, total, page, pageSize }
     }
 
@@ -181,6 +341,10 @@ export function queryStore(dbName: string, storeName: string, query: TableQuery)
       const collected: Array<{ key: RecordKey; sortValue: unknown }> = []
       const cursorReq = scanStore.openCursor()
       cursorReq.onsuccess = () => {
+        if (control.isCancelled?.()) {
+          reject(abortError())
+          return
+        }
         const cursor = cursorReq.result
         if (!cursor) {
           resolve(collected)
@@ -189,7 +353,7 @@ export function queryStore(dbName: string, storeName: string, query: TableQuery)
         if (matchesQuery(cursor.value, normalized)) {
           collected.push({
             key: cursor.primaryKey,
-            sortValue: normalized.sort ? valueAt(cursor.value, normalized.sort.field) : cursor.primaryKey,
+            sortValue: valueAt(cursor.value, normalized.sort!.field),
           })
         }
         cursor.continue()
@@ -197,21 +361,23 @@ export function queryStore(dbName: string, storeName: string, query: TableQuery)
       cursorReq.onerror = () => reject(cursorReq.error)
     })
 
-    const direction = normalized.sort?.direction === 'desc' ? -1 : 1
+    ensureActive(control)
+    const direction = normalized.sort.direction === 'desc' ? -1 : 1
     tuples.sort((left, right) => compareValues(left.sortValue, right.sortValue) * direction)
 
-    const start = page * pageSize
     const keys = tuples.slice(start, start + pageSize).map((tuple) => tuple.key)
     if (keys.length === 0) return { rows: [], total: tuples.length, page, pageSize }
 
-    // Fresh transaction: the scan above may have spanned many event-loop turns.
     const hydrateStore = storeOf(db, storeName, 'readonly')
-    const rows = await Promise.all(
+    const hydrated = await Promise.all(
       keys.map(async (key) => ({ key, value: await request(hydrateStore.get(key)) })),
     )
 
+    ensureActive(control)
     return {
-      rows: rows.filter((row) => row.value !== undefined),
+      rows: hydrated.flatMap((row) =>
+        row.value === undefined ? [] : [{ key: row.key, value: previewRecord(row.value) }],
+      ),
       total: tuples.length,
       page,
       pageSize,

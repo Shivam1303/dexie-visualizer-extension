@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '../../components/Button'
 import { CloseIcon } from '../../components/Icons'
 import { JsonTree } from '../../components/JsonTree'
@@ -28,13 +28,29 @@ export function RowDrawer({
   onChanged: () => void
   sourceMode: SourceMode
 }) {
-  // The record as it actually exists after the last write, not the grid's snapshot.
-  const [record, setRecord] = useState<RowRecord>(row.value)
+  // Full records are fetched only when opened; table pages carry lightweight previews.
+  const [record, setRecord] = useState<RowRecord | null>(null)
+  const [loading, setLoading] = useState(true)
   const [patches, setPatches] = useState<Map<string, RecordPatch>>(new Map())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setRecord(null)
+    setError(null)
+    source
+      .getRow(dbName, storeName, row.key)
+      .then((value) => active && setRecord(value))
+      .catch((cause: Error) => active && setError(cause.message))
+      .finally(() => active && setLoading(false))
+    return () => {
+      active = false
+    }
+  }, [dbName, row.key, source, storeName])
 
   function stagePatch(path: string[], value: unknown) {
     setSaved(false)
@@ -81,7 +97,7 @@ export function RowDrawer({
   }
 
   const staged = patches.size
-  const fieldCount = Object.keys(record).length
+  const fieldCount = record ? Object.keys(record).length : 0
 
   return (
     <div className="drawer-layer" onMouseDown={onClose} role="presentation">
@@ -99,8 +115,13 @@ export function RowDrawer({
           </Button>
         </header>
 
-        <div className="drawer-body">
-          <JsonTree editable onEdit={stagePatch} onRevert={revertPatch} staged={patches} value={record} />
+        <div aria-busy={loading} className="drawer-body">
+          {loading && (
+            <div aria-live="polite" className="drawer-loading" role="status">
+              Loading complete record…
+            </div>
+          )}
+          {record && <JsonTree editable onEdit={stagePatch} onRevert={revertPatch} staged={patches} value={record} />}
         </div>
 
         {error && (
@@ -147,7 +168,7 @@ export function RowDrawer({
                 Delete record
               </Button>
               <span className="footer-spacer" />
-              <Button compact disabled={staged === 0 || busy} onClick={() => void save()} variant="primary">
+              <Button compact disabled={!record || staged === 0 || busy} onClick={() => void save()} variant="primary">
                 {busy ? 'Saving…' : 'Save changes'}
               </Button>
             </>

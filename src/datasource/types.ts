@@ -39,6 +39,10 @@ export interface QueryPage {
   pageSize: number
 }
 
+export interface QueryOptions {
+  signal?: AbortSignal
+}
+
 export interface IndexMeta {
   name: string
   keyPath: string | string[]
@@ -66,15 +70,21 @@ export interface RecordPatch {
 }
 
 /**
- * The only abstraction the panel UI depends on. v1 ships one implementation
- * (RemoteBridgeSource); a mock with these six methods is enough to exercise the UI
- * headlessly. No create/insert op — v1 write scope is update + delete.
+ * The only abstraction the panel UI depends on. Live and imported sources share
+ * this contract, and a mock implementing it can exercise the UI headlessly. There
+ * is no create/insert operation; the write scope is update + delete.
  */
 export interface DataSource {
   listDatabases(): Promise<DatabaseMeta[]>
   listStores(dbName: string): Promise<StoreMeta[]>
   sampleRows(dbName: string, storeName: string, limit?: number): Promise<RowRecord[]>
-  query(dbName: string, storeName: string, query: TableQuery): Promise<QueryPage>
+  query(
+    dbName: string,
+    storeName: string,
+    query: TableQuery,
+    options?: QueryOptions,
+  ): Promise<QueryPage>
+  getRow(dbName: string, storeName: string, key: RecordKey): Promise<RowRecord>
   update(dbName: string, storeName: string, key: RecordKey, patches: RecordPatch[]): Promise<RowRecord>
   deleteRow(dbName: string, storeName: string, key: RecordKey): Promise<void>
 }

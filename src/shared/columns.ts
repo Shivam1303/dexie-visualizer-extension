@@ -7,6 +7,7 @@
  * which the parent tool never had to handle.
  */
 import { isOpaque } from './codec'
+import { isPreviewValue } from './rowPreview'
 import type { RowRecord } from '../datasource/types'
 
 export type ColumnType =
@@ -33,6 +34,11 @@ function valueType(value: unknown): ColumnType {
   if (value === null || value === undefined) return 'null'
   if (value instanceof Date) return 'date'
   if (isOpaque(value)) return 'binary'
+  if (isPreviewValue(value)) {
+    if (value.kind === 'array') return 'array'
+    if (['Blob', 'File', 'ArrayBuffer', 'TypedArray'].includes(value.kind)) return 'binary'
+    return 'object'
+  }
   if (Array.isArray(value)) return 'array'
   if (typeof value === 'string' && ISO_DATE.test(value) && !Number.isNaN(Date.parse(value))) {
     return 'date'

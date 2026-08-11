@@ -9,7 +9,7 @@
  */
 import { decode, encode } from '../shared/codec'
 import { OPS, type RpcRequest } from '../shared/rpc'
-import { deleteRecord, listDatabases, listStores, patchRecord, queryStore, sampleRows } from './idb'
+import { deleteRecord, getRecord, listDatabases, listStores, patchRecord, queryStore, sampleRows } from './idb'
 
 declare global {
   interface Window {
@@ -22,12 +22,26 @@ declare global {
 if (!window.__dvxInstalled) {
   window.__dvxInstalled = true
 
+  const cancelledQueries = new Set<string>()
+
   const handlers: Record<string, (args: any) => Promise<unknown> | unknown> = {
     [OPS.HELLO]: () => ({ origin: location.origin, title: document.title }),
     [OPS.LIST_DATABASES]: () => listDatabases(),
     [OPS.LIST_STORES]: ({ dbName }) => listStores(dbName),
     [OPS.SAMPLE_ROWS]: ({ dbName, storeName, limit }) => sampleRows(dbName, storeName, limit),
-    [OPS.QUERY]: ({ dbName, storeName, query }) => queryStore(dbName, storeName, query),
+    [OPS.QUERY]: async ({ dbName, storeName, query, requestId }) => {
+      try {
+        return await queryStore(dbName, storeName, query, {
+          isCancelled: () => cancelledQueries.has(requestId),
+        })
+      } finally {
+        cancelledQueries.delete(requestId)
+      }
+    },
+    [OPS.CANCEL_QUERY]: ({ requestId }) => {
+      cancelledQueries.add(requestId)
+    },
+    [OPS.GET_ROW]: ({ dbName, storeName, key }) => getRecord(dbName, storeName, key),
     [OPS.PATCH]: ({ dbName, storeName, key, patches }) => patchRecord(dbName, storeName, key, patches),
     [OPS.DELETE]: ({ dbName, storeName, key }) => deleteRecord(dbName, storeName, key),
   }

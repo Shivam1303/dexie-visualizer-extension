@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { ImportedDexieSource } from '../datasource/importedDexie'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { LazyImportedSource } from '../datasource/lazyImported'
 import { createRemoteBridgeSource } from '../datasource/remoteBridge'
 import type { DataSource, DatabaseMeta, StoreMeta } from '../datasource/types'
 import { deleteImportedDatabase } from '../import/database'
@@ -16,12 +16,16 @@ import {
   type Connection,
 } from '../shared/rpc'
 import { DatabaseIcon } from './components/Icons'
+import { WorkspaceHeader } from './components/WorkspaceHeader'
 import { ConnectScreen } from './features/connect/ConnectScreen'
-import { ImportScreen } from './features/import/ImportScreen'
 import { DatabaseOverview } from './features/overview/DatabaseOverview'
 import { WorkspaceSidebar } from './features/overview/WorkspaceSidebar'
 import { TableBrowser } from './features/table/TableBrowser'
 import { useAppStore, type SourceMode } from './store'
+
+const ImportScreen = lazy(() =>
+  import('./features/import/ImportScreen').then((module) => ({ default: module.ImportScreen })),
+)
 
 export function App() {
   const {
@@ -45,8 +49,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
 
   const importedSource = useMemo(
-    () => (importedSession ? new ImportedDexieSource(importedSession) : null),
-    [importedSession?.storageName],
+    () => (importedSession && sourceMode === 'imported' ? new LazyImportedSource(importedSession) : null),
+    [importedSession?.storageName, sourceMode],
   )
   const source: DataSource | null = sourceMode === 'imported' ? importedSource : remoteSource
   const sourceReady =
@@ -183,14 +187,16 @@ export function App() {
 
   if (importOpen) {
     return (
-      <ImportScreen
-        onCancel={sourceReady ? () => setImportOpen(false) : undefined}
-        onImported={(session) => {
-          setImportedSession(session)
-          setSourceMode('imported')
-          setImportOpen(false)
-        }}
-      />
+      <Suspense fallback={<main className="connect-screen"><h1>Opening importer…</h1></main>}>
+        <ImportScreen
+          onCancel={sourceReady ? () => setImportOpen(false) : undefined}
+          onImported={(session) => {
+            setImportedSession(session)
+            setSourceMode('imported')
+            setImportOpen(false)
+          }}
+        />
+      </Suspense>
     )
   }
 
@@ -226,13 +232,12 @@ export function App() {
         stores={stores}
       />
       <div className="workspace">
-        <header className="topbar">
-          <div className={`live-status ${sourceMode}`} role="status" title={contextLabel ?? ''}>
-            <span className={sourceMode === 'live' ? 'live-dot' : 'local-dot'} />
-            <span>{sourceMode === 'live' ? 'Live editing' : 'Local copy'}</span>
-            <strong>{contextDisplay}</strong>
-          </div>
-        </header>
+        <WorkspaceHeader
+          contextDisplay={contextDisplay}
+          contextLabel={contextLabel}
+          onBackToOverview={storeName ? () => setStoreName(null) : undefined}
+          sourceMode={sourceMode}
+        />
         <main className="workspace-main">
           {sourceMode === 'imported' && (
             <div className="local-copy-banner" role="status">
@@ -243,6 +248,7 @@ export function App() {
           {storeName && dbName ? (
             <TableBrowser
               dbName={dbName}
+              key={`${sourceKey}:${dbName}:${storeName}`}
               source={source}
               sourceMode={sourceMode}
               storeMeta={store}

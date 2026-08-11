@@ -6,6 +6,8 @@ export const OPS = {
   LIST_STORES: 'LIST_STORES',
   SAMPLE_ROWS: 'SAMPLE_ROWS',
   QUERY: 'QUERY',
+  CANCEL_QUERY: 'CANCEL_QUERY',
+  GET_ROW: 'GET_ROW',
   PATCH: 'PATCH',
   DELETE: 'DELETE',
 } as const

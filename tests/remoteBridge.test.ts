@@ -26,6 +26,32 @@ describe('RemoteBridgeSource', () => {
     expect((page.rows[0].value as any).at).toBeInstanceOf(Date)
   })
 
+  it('cancels a remote query when its signal is aborted', async () => {
+    sendMessage.mockImplementation(({ payload }) => {
+      if (payload.op === 'CANCEL_QUERY') {
+        return Promise.resolve({ ok: true, data: encode(undefined) })
+      }
+      return new Promise(() => {})
+    })
+    const controller = new AbortController()
+    const pending = createRemoteBridgeSource().query(
+      'db',
+      'store',
+      { page: 0, pageSize: 50 },
+      { signal: controller.signal },
+    )
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: 'RPC',
+      payload: {
+        op: 'CANCEL_QUERY',
+        args: { requestId: expect.stringMatching(/^query-/) },
+      },
+    })
+  })
+
   it('rejects with the relay error message', async () => {
     sendMessage.mockResolvedValue({ ok: false, error: 'No tab is connected.' })
     await expect(createRemoteBridgeSource().listDatabases()).rejects.toThrow('No tab is connected.')

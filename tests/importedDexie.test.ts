@@ -14,6 +14,7 @@ import {
 } from '../src/import/session'
 import type { ImportedSession } from '../src/import/types'
 import { applyRecordPatches } from '../src/shared/recordPatches'
+import { isPreviewValue } from '../src/shared/rowPreview'
 
 function memoryStorage(): StorageAreaLike {
   const values = new Map<string, unknown>()
@@ -152,6 +153,23 @@ describe('ImportedDexieSource', () => {
     const secondPage = await source.query('FixtureDB', 'users', { page: 1, pageSize: 1 })
     expect(secondPage.total).toBe(2)
     expect(secondPage.rows.map((row) => row.key)).toEqual([2])
+
+    const indexed = await source.query('FixtureDB', 'users', {
+      page: 0,
+      pageSize: 10,
+      sort: { field: 'email', direction: 'asc' },
+    })
+    expect(indexed.rows.map((row) => row.key)).toEqual([2, 1])
+    expect(isPreviewValue(indexed.rows[0].value.profile)).toBe(true)
+    await expect(source.getRow('FixtureDB', 'users', 2)).resolves.toMatchObject({
+      profile: { active: false },
+    })
+
+    const controller = new AbortController()
+    controller.abort()
+    await expect(
+      source.query('FixtureDB', 'users', { page: 0, pageSize: 10 }, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: 'AbortError' })
 
     const updated = await source.update('FixtureDB', 'notes', 'note-1', [
       { path: ['count'], value: '4' },
