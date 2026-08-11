@@ -22,7 +22,7 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
-body { background: var(--bg); min-width: 320px; }
+body { background: var(--bg); min-width: 320px; color: var(--text); }
 button, input, select { font: inherit; }
 button { color: inherit; }
 svg { width: 18px; height: 18px; flex: 0 0 auto; }
@@ -217,10 +217,7 @@ h1, h2 { margin: 0; }
   display: flex; min-height: 0; flex: 1; flex-direction: column;
   border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
 }
-.data-grid-header-viewport {
-  overflow-x: hidden; overflow-y: auto; flex: 0 0 auto;
-  background: var(--panel-2); scrollbar-gutter: stable;
-}
+.data-grid-header-viewport { overflow: hidden; flex: 0 0 auto; background: var(--panel-2); }
 .data-grid-header { display: grid; }
 .data-grid-header-cell { position: relative; min-width: 0; border-right: 1px solid var(--line); }
 .column-sort {
@@ -246,6 +243,9 @@ h1, h2 { margin: 0; }
 .data-grid-body { position: relative; flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
 .data-grid-row {
   position: absolute; top: 0; left: 0; display: grid; align-items: center;
+  /* padding MUST stay 0: this row is a <button>, and the UA default (1px 6px)
+     would shift every grid track 6px right of the matching header cell. */
+  padding: 0;
   border: 0; border-bottom: 1px solid #1c212b;
   background: none; cursor: pointer; text-align: left;
 }

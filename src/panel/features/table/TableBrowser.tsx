@@ -6,7 +6,7 @@ import {
   type ColumnSizingState,
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '../../components/Badge'
 import { Button } from '../../components/Button'
 import { RefreshIcon, SearchIcon } from '../../components/Icons'
@@ -74,6 +74,7 @@ export function TableBrowser({
   const [selectedRow, setSelectedRow] = useState<KeyedRow | null>(null)
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([])
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({})
+  const [scrollbarWidth, setScrollbarWidth] = useState(0)
   // Bumped after a write so the grid re-reads the real post-write state.
   const [reloadToken, setReloadToken] = useState(0)
 
@@ -185,6 +186,37 @@ export function TableBrowser({
   const template = visibleLeafColumns.length > 0
     ? visibleLeafColumns.map((column) => `${column.getSize()}px`).join(' ')
     : '1px'
+  useLayoutEffect(() => {
+    const body = scrollRef.current
+    if (!body) return
+
+    const measure = () => {
+      const width = Math.max(0, body.offsetWidth - body.clientWidth)
+      setScrollbarWidth((current) => (current === width ? current : width))
+    }
+
+    measure()
+    window.addEventListener('resize', measure)
+    if (typeof ResizeObserver === 'undefined') {
+      return () => window.removeEventListener('resize', measure)
+    }
+
+    const observer = new ResizeObserver(measure)
+    observer.observe(body)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [gridWidth, result?.rows.length])
+
+  useLayoutEffect(() => {
+    const body = scrollRef.current
+    const header = headerScrollRef.current
+    if (body && header) {
+      header.scrollLeft = body.scrollLeft
+    }
+  }, [gridWidth, scrollbarWidth])
+
   const pageCount = result ? Math.max(1, Math.ceil(result.total / pageSize)) : 1
 
   function cycleSort(field: string) {
@@ -207,7 +239,6 @@ export function TableBrowser({
     <div className="table-workspace">
       <header className="table-heading">
         <div>
-          <p className="eyebrow">Object store</p>
           <h1>{storeName}</h1>
           <p>
             {result ? `${result.total.toLocaleString()} matching rows` : `${storeMeta?.count.toLocaleString() ?? '—'} rows`}
@@ -292,7 +323,7 @@ export function TableBrowser({
       )}
 
       <div aria-busy={loading} className="data-grid-shell">
-        <div className="data-grid-header-viewport" ref={headerScrollRef}>
+        <div className="data-grid-header-viewport" ref={headerScrollRef} style={{ paddingRight: `${scrollbarWidth}px` }}>
           <div
             className="data-grid-header"
             style={{ gridTemplateColumns: template, width: `${gridWidth}px` }}

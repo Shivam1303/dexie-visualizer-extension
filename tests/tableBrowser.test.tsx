@@ -20,7 +20,10 @@ beforeEach(() => {
   })
 })
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 describe('TableBrowser pagination', () => {
   it('cancels the previous request and clamps a page after the total shrinks', async () => {
@@ -106,6 +109,13 @@ describe('TableBrowser pagination', () => {
       }),
     } as unknown as DataSource
 
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('data-grid-body') ? 500 : 0
+    })
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+      return this.classList.contains('data-grid-body') ? 483 : 0
+    })
+
     const { container } = render(
       <TableBrowser
         dbName="FixtureDB"
@@ -128,6 +138,7 @@ describe('TableBrowser pagination', () => {
     const headerViewport = container.querySelector<HTMLElement>('.data-grid-header-viewport')
     expect(body).not.toBeNull()
     expect(headerViewport).not.toBeNull()
+    expect(headerViewport?.style.paddingRight).toBe('17px')
     body!.scrollLeft = 260
     fireEvent.scroll(body!)
     expect(headerViewport?.scrollLeft).toBe(260)
