@@ -1,4 +1,4 @@
-# Dexie Visualizer Extension
+# IndexedDB Workbench
 
 A Chrome MV3 extension with one full-page workspace for two workflows:
 
@@ -33,6 +33,16 @@ Then in Chrome: `chrome://extensions` → enable **Developer mode** → **Load u
 → select the `dist/` folder.
 
 Rebuild and hit the reload icon on the extension card to pick up changes.
+
+To build a Chrome Web Store upload instead:
+
+```bash
+npm run package   # → release/indexeddb-workbench-<version>.zip
+```
+
+See [`docs/PUBLISHING.md`](docs/PUBLISHING.md) for the store listing copy, permission
+justifications, and submission checklist, and [`docs/PRIVACY.md`](docs/PRIVACY.md) for
+the privacy policy.
 
 ## Using it
 

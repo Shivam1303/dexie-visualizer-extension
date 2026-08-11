@@ -1,5 +1,10 @@
 # Dexie Visualizer Extension — Project Brief
 
+> **Renamed since this was written.** The extension ships as **IndexedDB Workbench**
+> (see `docs/PUBLISHING.md` for why). This doc keeps its original wording as a record
+> of the project's starting context; `../Dexie-visualizer` below still refers to the
+> real sibling directory.
+
 Status: **draft — pre-brainstorming context transfer, not an approved spec**
 Date: 2026-08-10
 Related project: `../Dexie-visualizer` (the file-import Dexie export viewer this extension grows out of)
