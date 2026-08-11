@@ -9,8 +9,14 @@ type RuntimeListener = (
 
 let runtimeListener: RuntimeListener
 let actionClick: (tab: { id?: number }) => Promise<void>
+let tabUpdate: (
+  tabId: number,
+  info: { status?: string; url?: string },
+  tab: { url?: string },
+) => Promise<void>
 let tabsCreate: ReturnType<typeof vi.fn>
 let tabsSendMessage: ReturnType<typeof vi.fn>
+let executeScript: ReturnType<typeof vi.fn>
 
 beforeEach(async () => {
   vi.resetModules()
@@ -22,6 +28,7 @@ beforeEach(async () => {
     status: 'connected',
   }
   tabsCreate = vi.fn().mockResolvedValue(undefined)
+  executeScript = vi.fn().mockResolvedValue(undefined)
   tabsSendMessage = vi.fn().mockImplementation((_tabId, message) =>
     message.op === OPS.HELLO
       ? Promise.resolve({
@@ -38,7 +45,7 @@ beforeEach(async () => {
       onMessage: { addListener: vi.fn((listener) => (runtimeListener = listener)) },
       sendMessage: vi.fn().mockResolvedValue(undefined),
     },
-    scripting: { executeScript: vi.fn() },
+    scripting: { executeScript },
     storage: {
       session: {
         get: vi.fn().mockResolvedValue({ connection: saved }),
@@ -48,7 +55,7 @@ beforeEach(async () => {
     tabs: {
       create: tabsCreate,
       onRemoved: { addListener: vi.fn() },
-      onUpdated: { addListener: vi.fn() },
+      onUpdated: { addListener: vi.fn((listener) => (tabUpdate = listener)) },
       sendMessage: tabsSendMessage,
     },
   }
@@ -85,5 +92,40 @@ describe('background connection persistence', () => {
       op: OPS.LIST_DATABASES,
       args: {},
     })
+  })
+
+  it('keeps the connection and reinjects the bridge after same-origin navigation', async () => {
+    const url = 'https://example.test/orders/42'
+    await tabUpdate(42, { status: 'loading', url }, { url })
+
+    await expect(sendToBackground({ type: MSG_GET_CONNECTION })).resolves.toMatchObject({
+      tabId: 42,
+      status: 'connected',
+    })
+    expect(executeScript).not.toHaveBeenCalled()
+
+    await tabUpdate(42, { status: 'complete' }, { url })
+
+    expect(executeScript).toHaveBeenCalledWith({
+      target: { tabId: 42 },
+      files: ['content.js'],
+    })
+    await expect(sendToBackground({ type: MSG_GET_CONNECTION })).resolves.toMatchObject({
+      tabId: 42,
+      origin: 'https://example.test',
+      status: 'connected',
+    })
+  })
+
+  it('marks the connection stale when the tab moves to another origin', async () => {
+    const url = 'https://other.test/account'
+    await tabUpdate(42, { status: 'loading', url }, { url })
+
+    await expect(sendToBackground({ type: MSG_GET_CONNECTION })).resolves.toMatchObject({
+      tabId: 42,
+      status: 'stale',
+      error: expect.stringMatching(/different site/i),
+    })
+    expect(executeScript).not.toHaveBeenCalled()
   })
 })

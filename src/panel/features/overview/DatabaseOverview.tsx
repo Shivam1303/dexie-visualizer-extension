@@ -1,9 +1,7 @@
 import type { DatabaseMeta, StoreMeta } from '../../../datasource/types'
-import type { ImportedSession } from '../../../import/types'
-import type { Connection } from '../../../shared/rpc'
 import { Badge } from '../../components/Badge'
 import { ChevronIcon, DatabaseIcon, TableIcon } from '../../components/Icons'
-import { useAppStore, type SourceMode } from '../../store'
+import { useAppStore } from '../../store'
 
 function keyLabel(store: StoreMeta): string {
   if (store.keyPath === null) return store.autoIncrement ? 'Auto-increment key' : 'Out-of-line key'
@@ -12,35 +10,27 @@ function keyLabel(store: StoreMeta): string {
 }
 
 export function DatabaseOverview({
-  connection,
   databases,
   database,
   stores,
   loading,
-  sourceMode,
-  importedSession,
 }: {
-  connection: Connection
   databases: DatabaseMeta[] | null
   database?: DatabaseMeta
   stores: StoreMeta[] | null
   loading: boolean
-  sourceMode: SourceMode
-  importedSession: ImportedSession | null
 }) {
   const { setDbName, setStoreName } = useAppStore()
 
   if (!database) {
-    const context = sourceMode === 'live' ? connection.origin : importedSession?.fileName
     return (
       <div className="content-page">
         <header className="page-heading">
           <div>
-            <p className="eyebrow">{sourceMode === 'live' ? 'Connected site' : 'Imported snapshot'}</p>
+            <p className="eyebrow">Get started</p>
             <h1>Choose a database</h1>
-            <p>{context}</p>
+            <p>Select one below to review its object stores and records.</p>
           </div>
-          <Badge tone={sourceMode === 'live' ? 'success' : 'blue'}><span className="status-dot" /> {sourceMode === 'live' ? 'Connected' : 'Local copy'}</Badge>
         </header>
 
         {loading && <div className="overview-loading">Reading available databases…</div>}
@@ -70,11 +60,10 @@ export function DatabaseOverview({
     <div className="content-page">
       <header className="page-heading">
         <div>
-          <p className="eyebrow">Database overview</p>
-          <h1>{database.name}</h1>
-          <p>{sourceMode === 'live' ? `Live data from ${connection.origin}` : `Imported from ${importedSession?.fileName}`}</p>
+          <p className="eyebrow">Selected database</p>
+          <h1>Database overview</h1>
+          <p>Review its structure and row counts, then choose an object store to explore.</p>
         </div>
-        <Badge tone={sourceMode === 'live' ? 'success' : 'blue'}><span className="status-dot" /> {sourceMode === 'live' ? 'Live connection' : 'Local copy'}</Badge>
       </header>
 
       <section className="metric-grid" aria-label="Database metrics">

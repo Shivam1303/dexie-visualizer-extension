@@ -52,18 +52,17 @@ describe('full-page workspace', () => {
   it('summarizes the live database and opens a store from its overview card', () => {
     render(
       <DatabaseOverview
-        connection={connection}
         database={{ name: 'ShopDB', version: 4 }}
         databases={[{ name: 'ShopDB', version: 4 }]}
         loading={false}
         stores={stores}
-        sourceMode="live"
-        importedSession={null}
       />,
     )
 
     expect(screen.getByText('15')).toBeInTheDocument()
     expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Database overview' })).toBeInTheDocument()
+    expect(screen.queryByText('ShopDB')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /users/i }))
     expect(useAppStore.getState().storeName).toBe('users')
   })
@@ -84,6 +83,7 @@ describe('full-page workspace', () => {
       />,
     )
 
+    expect(screen.queryByText(connection.origin ?? '')).not.toBeInTheDocument()
     fireEvent.change(screen.getByPlaceholderText('Find a store'), { target: { value: 'user' } })
     expect(screen.getByRole('button', { name: /users/i })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /sessions/i })).not.toBeInTheDocument()

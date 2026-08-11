@@ -149,6 +149,10 @@ describe('ImportedDexieSource', () => {
     })
     expect(page.rows.map((row) => row.key)).toEqual([2, 1])
 
+    const secondPage = await source.query('FixtureDB', 'users', { page: 1, pageSize: 1 })
+    expect(secondPage.total).toBe(2)
+    expect(secondPage.rows.map((row) => row.key)).toEqual([2])
+
     const updated = await source.update('FixtureDB', 'notes', 'note-1', [
       { path: ['count'], value: '4' },
     ])

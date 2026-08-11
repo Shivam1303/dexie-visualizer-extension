@@ -128,10 +128,38 @@ export function sampleRows(dbName: string, storeName: string, limit = 200): Prom
   })
 }
 
+function canPageWithCursor(query: TableQuery): boolean {
+  return !query.sort && !query.search?.trim() && !query.filters?.length
+}
+
+function readCursorPage(store: IDBObjectStore, start: number, pageSize: number): Promise<QueryPage['rows']> {
+  return new Promise<QueryPage['rows']>((resolve, reject) => {
+    const rows: QueryPage['rows'] = []
+    const cursorReq = store.openCursor()
+    let positioned = start === 0
+
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result
+      if (!cursor || rows.length >= pageSize) {
+        resolve(rows)
+        return
+      }
+      if (!positioned) {
+        positioned = true
+        cursor.advance(start)
+        return
+      }
+      rows.push({ key: cursor.primaryKey, value: cursor.value })
+      cursor.continue()
+    }
+    cursorReq.onerror = () => reject(cursorReq.error)
+  })
+}
+
 /**
- * Two passes on purpose. The cursor pass keeps only {key, sortValue} tuples, so
- * memory scales with the match count rather than with full row payloads — the same
- * strategy the parent project uses. Only the requested page is then hydrated.
+ * Plain browsing uses the IndexedDB cursor's native key order and skips directly
+ * to the requested page. Search, filters, and custom sorting still need a full
+ * scan; that path keeps only {key, sortValue} tuples and hydrates one page.
  */
 export function queryStore(dbName: string, storeName: string, query: TableQuery): Promise<QueryPage> {
   const page = Math.max(0, query.page ?? 0)
@@ -139,6 +167,15 @@ export function queryStore(dbName: string, storeName: string, query: TableQuery)
   const normalized: TableQuery = { ...query, page, pageSize }
 
   return withDb(dbName, async (db) => {
+    if (canPageWithCursor(normalized)) {
+      const start = page * pageSize
+      const [total, rows] = await Promise.all([
+        request(storeOf(db, storeName, 'readonly').count()),
+        readCursorPage(storeOf(db, storeName, 'readonly'), start, pageSize),
+      ])
+      return { rows, total, page, pageSize }
+    }
+
     const scanStore = storeOf(db, storeName, 'readonly')
     const tuples = await new Promise<Array<{ key: RecordKey; sortValue: unknown }>>((resolve, reject) => {
       const collected: Array<{ key: RecordKey; sortValue: unknown }> = []

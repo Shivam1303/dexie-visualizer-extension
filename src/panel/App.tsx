@@ -207,6 +207,9 @@ export function App() {
   const database = databases?.find((item) => item.name === dbName)
   const store = stores?.find((item) => item.name === storeName)
   const contextLabel = sourceMode === 'live' ? connection.origin : importedSession?.fileName
+  const contextDisplay = sourceMode === 'live'
+    ? contextLabel?.replace(/^https?:\/\//, '')
+    : contextLabel
 
   return (
     <div className="app-shell">
@@ -224,18 +227,10 @@ export function App() {
       />
       <div className="workspace">
         <header className="topbar">
-          <div className="database-crumb">
-            <DatabaseIcon />
-            <div>
-              <span>{sourceMode === 'live' ? 'Current live database' : 'Imported database'}</span>
-              <strong>{database?.name ?? contextLabel}</strong>
-            </div>
-            {database && <small>v{database.version}</small>}
-          </div>
           <div className={`live-status ${sourceMode}`} role="status" title={contextLabel ?? ''}>
             <span className={sourceMode === 'live' ? 'live-dot' : 'local-dot'} />
             <span>{sourceMode === 'live' ? 'Live editing' : 'Local copy'}</span>
-            <strong>{contextLabel}</strong>
+            <strong>{contextDisplay}</strong>
           </div>
         </header>
         <main className="workspace-main">
@@ -255,12 +250,9 @@ export function App() {
             />
           ) : (
             <DatabaseOverview
-              connection={connection}
               database={database}
               databases={databases}
-              importedSession={importedSession}
               loading={loadingDatabases || loadingStores}
-              sourceMode={sourceMode}
               stores={stores}
             />
           )}

@@ -51,7 +51,7 @@ Three entry points:
 
 ### Connection lifecycle
 
-Clicking the icon on a tab injects the content script into that tab and marks it "connected" in the background worker, replacing any prior connection. If the tab navigates or reloads, the connection is dropped (per-click `activeTab` access doesn't survive navigation) and the side panel shows a "reconnect" prompt rather than silently failing queries.
+Clicking the icon on a tab injects the content script and marks that tab connected, replacing any prior connection. Reloads and same-origin navigations replace the document, so the worker automatically reinjects the bridge after loading while retaining the connection. A different-origin navigation marks the connection stale and requires another explicit click.
 
 ### DataSource interface
 
@@ -88,7 +88,8 @@ src/
 ## Error handling
 
 - Content-script injection fails (e.g. a restricted page like `chrome://...`) → side panel shows "can't connect to this page" instead of a blank/broken UI.
-- Tab navigates away/reloads mid-session → connection marked stale, side panel prompts to reconnect.
+- Tab reloads or navigates within the same origin → content bridge is reinjected automatically.
+- Tab moves to another origin → connection is marked stale and the workspace prompts to reconnect.
 - `update`/`deleteRow` throws (e.g. a constraint error from the page's own IndexedDB) → inline error surfaced at the row; the live-edit banner stays up and the rest of the panel keeps working.
 - Query/render errors on a single table → caught per-table, shown as an inline banner, not a full-panel crash.
 

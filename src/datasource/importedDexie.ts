@@ -76,6 +76,25 @@ export class ImportedDexieSource implements DataSource {
     const page = Math.max(0, query.page ?? 0)
     const pageSize = Math.max(1, query.pageSize ?? 50)
     const normalized = { ...query, page, pageSize }
+
+    if (!normalized.sort && !normalized.search?.trim() && !normalized.filters?.length) {
+      const start = page * pageSize
+      const [total, indexableKeys] = await Promise.all([
+        table.count(),
+        table.toCollection().offset(start).limit(pageSize).primaryKeys(),
+      ])
+      const keys = indexableKeys as RecordKey[]
+      const values = await table.bulkGet(indexableKeys)
+      return {
+        rows: values.flatMap((value, index) =>
+          value === undefined ? [] : [{ key: keys[index], value }],
+        ),
+        total,
+        page,
+        pageSize,
+      }
+    }
+
     const tuples: Array<{ key: RecordKey; sortValue: unknown }> = []
 
     await table.toCollection().each((row, cursor) => {

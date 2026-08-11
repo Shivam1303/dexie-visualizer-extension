@@ -45,11 +45,11 @@ To inspect an export instead, choose **Import Dexie export**, select or drop a D
 `.json`/`.txt` export, review its metadata, and confirm. The source switcher lets
 you move between a connected live site and the imported copy.
 
-**Reconnecting is expected.** Access is granted per click via the `activeTab`
-permission and covers only that tab, and it does not survive a reload or a
-navigation. When the page navigates, the workspace asks you to click the icon again.
-That's the permission model working, not a bug — it's why the extension needs no
-standing access to any site.
+Access is granted per click via the `activeTab` permission and covers only that
+tab. Reloading or navigating to another path on the same origin reconnects
+automatically after the new document loads. Navigating to a different origin
+(including a protocol, hostname, or port change) requires clicking the extension
+icon again. This keeps the extension free of standing access to any site.
 
 Only one tab is connected at a time; clicking the icon elsewhere moves the
 connection.

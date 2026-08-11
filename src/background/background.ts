@@ -40,6 +40,13 @@ async function setConnection(next: Connection): Promise<void> {
   await broadcast()
 }
 
+async function injectBridge(tabId: number): Promise<{ origin: string; title: string }> {
+  await chrome.scripting.executeScript({ target: { tabId }, files: [CONTENT_SCRIPT_PATH] })
+  const hello = await chrome.tabs.sendMessage(tabId, { op: OPS.HELLO, args: {} })
+  if (!hello?.ok) throw new Error(hello?.error ?? 'The content script did not respond.')
+  return hello.data
+}
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab?.id) return
   const tabId = tab.id
@@ -47,13 +54,11 @@ chrome.action.onClicked.addListener(async (tab) => {
   await connectionReady
 
   try {
-    await chrome.scripting.executeScript({ target: { tabId }, files: [CONTENT_SCRIPT_PATH] })
-    const hello = await chrome.tabs.sendMessage(tabId, { op: OPS.HELLO, args: {} })
-    if (!hello?.ok) throw new Error(hello?.error ?? 'The content script did not respond.')
+    const page = await injectBridge(tabId)
     await setConnection({
       tabId,
-      origin: hello.data.origin,
-      title: hello.data.title,
+      origin: page.origin,
+      title: page.title,
       status: 'connected',
     })
   } catch (error: any) {
@@ -68,11 +73,50 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 })
 
-// activeTab access does not survive a navigation, so a reload drops the connection.
-chrome.tabs.onUpdated.addListener(async (tabId, info) => {
+function originOf(url: string | undefined): string | null {
+  if (!url) return null
+  try {
+    return new URL(url).origin
+  } catch {
+    return null
+  }
+}
+
+// Chrome retains activeTab access while the selected tab stays on the same origin.
+// A full navigation replaces the document (and therefore the content script), so
+// reinject the bridge after loading without forcing the user to reconnect.
+chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
   await connectionReady
-  if (tabId === connection.tabId && info.status === 'loading' && connection.status === 'connected') {
-    await setConnection({ ...connection, status: 'stale' })
+  if (tabId !== connection.tabId || !connection.origin) return
+
+  const nextOrigin = originOf(info.url ?? tab.url)
+  if (nextOrigin && nextOrigin !== connection.origin) {
+    await setConnection({
+      ...connection,
+      status: 'stale',
+      error: 'The connected tab moved to a different site. Click the extension icon there to reconnect.',
+    })
+    return
+  }
+
+  if (info.status !== 'complete') return
+
+  try {
+    const page = await injectBridge(tabId)
+    if (page.origin !== connection.origin || connection.tabId !== tabId) return
+    await setConnection({
+      ...connection,
+      title: page.title,
+      status: 'connected',
+      error: undefined,
+    })
+  } catch (error: any) {
+    if (connection.tabId !== tabId) return
+    await setConnection({
+      ...connection,
+      status: 'stale',
+      error: `Could not reconnect after navigation. ${error?.message ?? ''}`.trim(),
+    })
   }
 })
 

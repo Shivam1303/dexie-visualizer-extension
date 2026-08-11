@@ -68,10 +68,17 @@ export function WorkspaceSidebar({
           Imported
         </button>
       </div>
-      <button className="sidebar-import" onClick={onImport} type="button">
-        <UploadIcon />
-        {importedSession ? 'Replace imported copy' : 'Import Dexie export'}
-      </button>
+      <div className="sidebar-actions">
+        <button className="sidebar-import" onClick={onImport} type="button">
+          <UploadIcon />
+          {importedSession ? 'Replace imported copy' : 'Import Dexie export'}
+        </button>
+        {sourceMode === 'imported' && importedSession && (
+          <button className="sidebar-remove" onClick={onRemoveImported} type="button">
+            Remove imported copy
+          </button>
+        )}
+      </div>
 
       <label className="sidebar-database">
         <span>Database</span>
@@ -135,16 +142,6 @@ export function WorkspaceSidebar({
         )}
       </nav>
 
-      <div className={`sidebar-footer ${sourceMode}`} title={sourceMode === 'live' ? connection.origin ?? '' : importedSession?.fileName}>
-        <span className={sourceMode === 'live' ? 'live-dot' : 'local-dot'} />
-        <div>
-          <strong>{sourceMode === 'live' ? 'Live editing' : 'Local copy'}</strong>
-          <span>{sourceMode === 'live' ? connection.origin : importedSession?.fileName}</span>
-        </div>
-        {sourceMode === 'imported' && importedSession && (
-          <button aria-label="Remove imported copy" onClick={onRemoveImported} title="Remove imported copy" type="button">×</button>
-        )}
-      </div>
     </aside>
   )
 }

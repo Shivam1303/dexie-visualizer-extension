@@ -113,6 +113,43 @@ describe('queryStore', () => {
     expect(page.rows[0].key).toBe('u20')
   })
 
+  it('loads a page beyond 100,000 rows without scanning the whole store', async () => {
+    const largeDb = `${DB}_large`
+    await new Promise<void>((resolve) => {
+      const deletion = indexedDB.deleteDatabase(largeDb)
+      deletion.onsuccess = () => resolve()
+      deletion.onerror = () => resolve()
+      deletion.onblocked = () => resolve()
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      const opening = indexedDB.open(largeDb, 1)
+      opening.onupgradeneeded = () => opening.result.createObjectStore('rows', { keyPath: 'id' })
+      opening.onsuccess = () => {
+        const db = opening.result
+        const tx = db.transaction('rows', 'readwrite')
+        const store = tx.objectStore('rows')
+        for (let id = 0; id < 100_025; id += 1) store.put({ id })
+        tx.oncomplete = () => {
+          db.close()
+          resolve()
+        }
+        tx.onerror = () => reject(tx.error)
+      }
+      opening.onerror = () => reject(opening.error)
+    })
+
+    try {
+      const page = await queryStore(largeDb, 'rows', { page: 2000, pageSize: 50 })
+      expect(page.total).toBe(100_025)
+      expect(page.rows).toHaveLength(25)
+      expect(page.rows[0].key).toBe(100_000)
+      expect(page.rows.at(-1)?.key).toBe(100_024)
+    } finally {
+      indexedDB.deleteDatabase(largeDb)
+    }
+  }, 30_000)
+
   it('returns keys for out-of-line-key stores', async () => {
     const page = await queryStore(DB, 'logs', { page: 0, pageSize: 10 })
     expect(page.rows[0].key).toBe(1)

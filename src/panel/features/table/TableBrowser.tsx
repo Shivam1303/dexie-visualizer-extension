@@ -47,6 +47,7 @@ export function TableBrowser({
 }) {
   const [columns, setColumns] = useState<InferredColumn[]>([])
   const [result, setResult] = useState<QueryPage | null>(null)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search)
@@ -90,6 +91,7 @@ export function TableBrowser({
   useEffect(() => {
     let active = true
     setError(null)
+    setLoading(true)
 
     source
       .query(dbName, storeName, {
@@ -105,6 +107,7 @@ export function TableBrowser({
         setError(cause.message)
         setResult(null)
       })
+      .finally(() => active && setLoading(false))
 
     return () => {
       active = false
@@ -254,7 +257,7 @@ export function TableBrowser({
           }}
           ref={scrollRef}
         >
-          {!result && !error && <div className="grid-message">Reading IndexedDB…</div>}
+          {loading && <div className="grid-message">Reading IndexedDB…</div>}
           {result && result.rows.length === 0 && <div className="grid-message">No rows match this query.</div>}
           <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative', width: `${gridWidth}px` }}>
             {virtualizer.getVirtualItems().map((virtualRow) => {
@@ -287,19 +290,26 @@ export function TableBrowser({
       <footer className="pagination">
         <span>{result ? `${result.total.toLocaleString()} matching rows` : 'Loading…'}</span>
         <label>Rows
-          <select onChange={(event) => setPageSize(Number(event.target.value))} value={pageSize}>
+          <select
+            disabled={loading}
+            onChange={(event) => {
+              setPage(0)
+              setPageSize(Number(event.target.value))
+            }}
+            value={pageSize}
+          >
             <option>25</option>
             <option>50</option>
             <option>100</option>
           </select>
         </label>
-        <Button compact disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>
+        <Button compact disabled={loading || page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>
           Previous
         </Button>
         <strong>
           {page + 1} / {pageCount}
         </strong>
-        <Button compact disabled={page + 1 >= pageCount} onClick={() => setPage((value) => value + 1)}>
+        <Button compact disabled={loading || page + 1 >= pageCount} onClick={() => setPage((value) => value + 1)}>
           Next
         </Button>
       </footer>
