@@ -35,6 +35,7 @@ export function RowDrawer({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   useEffect(() => {
@@ -64,6 +65,19 @@ export function RowDrawer({
       next.delete(path.join('.'))
       return next
     })
+  }
+
+  async function copyRecord() {
+    if (!record) return
+    setError(null)
+    setCopied(false)
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(record, null, 2))
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch (cause: any) {
+      setError(cause?.message ?? 'The record could not be copied to the clipboard.')
+    }
   }
 
   async function save() {
@@ -149,6 +163,12 @@ export function RowDrawer({
           </div>
         )}
 
+        {copied && !confirmingDelete && (
+          <div className="saved-strip" role="status">
+            Record copied to clipboard
+          </div>
+        )}
+
         <footer className="drawer-footer">
           {confirmingDelete ? (
             <>
@@ -168,6 +188,9 @@ export function RowDrawer({
                 Delete record
               </Button>
               <span className="footer-spacer" />
+              <Button compact disabled={!record || loading || busy} onClick={() => void copyRecord()}>
+                Copy record
+              </Button>
               <Button compact disabled={!record || staged === 0 || busy} onClick={() => void save()} variant="primary">
                 {busy ? 'Saving…' : 'Save changes'}
               </Button>

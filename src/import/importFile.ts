@@ -16,6 +16,17 @@ function assertSupportedFile(file: File): void {
   if (file.size === 0) throw new Error('The selected file is empty.')
 }
 
+export function importFailureMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const name = error instanceof Error ? error.name : ''
+
+  if (name === 'QuotaExceededError' || /quota|not enough space/i.test(message)) {
+    return 'Import failed because the browser does not have enough storage for this database. Free disk space, remove an older imported copy, and try again.'
+  }
+
+  return 'Import failed. The previous imported copy was kept.'
+}
+
 export async function inspectExportFile(file: File): Promise<ExportPreview> {
   assertSupportedFile(file)
 
@@ -44,6 +55,7 @@ interface ReplaceOptions {
   onProgress?: ImportProgressHandler
   storage?: StorageAreaLike
   storageName?: string
+  tableNames?: string[]
 }
 
 export async function replaceImportedSnapshot(
@@ -53,19 +65,30 @@ export async function replaceImportedSnapshot(
 ): Promise<ImportedSession> {
   const storageName = options.storageName ?? `dvx-import-${crypto.randomUUID()}`
   const previous = await loadImportedSession(options.storage)
+  const tables = options.tableNames
+    ? preview.tables.filter((table) => options.tableNames?.includes(table.name))
+    : preview.tables
+  const skippedTables = preview.tables.filter((table) => !tables.some((selected) => selected.name === table.name))
   let database: Dexie | null = null
 
   try {
-    database = await importDB(file, {
+    if (tables.length === 0) throw new Error('Choose at least one table to import.')
+    const importOptions = {
       name: storageName,
+      skipTables: skippedTables.map((table) => table.name),
       progressCallback(progress) {
-        options.onProgress?.(progress)
+        options.onProgress?.({
+          ...progress,
+          totalTables: tables.length,
+          totalRows: tables.reduce((sum, table) => sum + table.rowCount, 0),
+        })
         return true
       },
-    })
+    }
+    database = await importDB(file, importOptions)
 
     const importedStores = new Set(database.tables.map((table) => table.name))
-    const missing = preview.tables.filter((table) => !importedStores.has(table.name))
+    const missing = tables.filter((table) => !importedStores.has(table.name))
     if (missing.length > 0) {
       throw new Error(`Imported database is missing ${missing.length} expected object stores.`)
     }
@@ -77,7 +100,7 @@ export async function replaceImportedSnapshot(
       databaseVersion: preview.databaseVersion,
       fileName: file.name,
       importedAt: new Date().toISOString(),
-      tables: preview.tables,
+      tables,
     }
     await saveImportedSession(session, options.storage)
     database.close()
@@ -91,6 +114,6 @@ export async function replaceImportedSnapshot(
     database?.close()
     await deleteImportedDatabase(storageName).catch(() => {})
     if (error instanceof Error && error.message.startsWith('Imported database is missing')) throw error
-    throw new Error('Import failed. The previous imported copy was kept.', { cause: error })
+    throw new Error(importFailureMessage(error), { cause: error })
   }
 }

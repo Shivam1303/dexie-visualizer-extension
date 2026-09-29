@@ -137,6 +137,15 @@ h1, h2 { margin: 0; }
 .database-preview > div:last-child { border-right: 0; }
 .database-preview span, .database-preview small { color: var(--muted); font-size: 10px; }
 .database-preview strong { overflow: hidden; margin: 4px 0 2px; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; }
+.table-selection { min-width: 0; margin: 0; padding: 15px 17px; border: 0; border-top: 1px solid var(--line); }
+.table-selection legend { padding: 0; color: var(--muted); font-size: 11px; }
+.table-selection-actions { display: flex; align-items: center; gap: 8px; margin: 7px 0 9px; color: var(--muted); font-size: 11px; }
+.table-selection-actions span { margin-right: auto; }
+.table-selection-actions button { padding: 0; border: 0; color: var(--blue); background: none; cursor: pointer; font-size: 11px; }
+.table-selection-list { display: grid; max-height: 180px; overflow: auto; border: 1px solid var(--line); border-radius: 7px; }
+.table-selection-list label { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 9px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 12px; }
+.table-selection-list label:last-child { border-bottom: 0; }
+.table-selection-list small { color: var(--muted); font-size: 10px; }
 .import-progress { padding: 15px 17px; border-top: 1px solid var(--line); }
 .import-progress > div { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 11px; }
 .import-progress > div span, .import-progress small { color: var(--muted); }

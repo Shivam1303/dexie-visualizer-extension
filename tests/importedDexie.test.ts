@@ -4,7 +4,7 @@ import Dexie from 'dexie'
 import { exportDB } from 'dexie-export-import'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ImportedDexieSource } from '../src/datasource/importedDexie'
-import { inspectExportFile, replaceImportedSnapshot } from '../src/import/importFile'
+import { importFailureMessage, inspectExportFile, replaceImportedSnapshot } from '../src/import/importFile'
 import {
   IMPORTED_SESSION_KEY,
   clearImportedSession,
@@ -69,6 +69,11 @@ describe('imported session metadata', () => {
 })
 
 describe('Dexie export import', () => {
+  it('explains storage quota failures', () => {
+    const error = new DOMException('The quota has been exceeded.', 'QuotaExceededError')
+    expect(importFailureMessage(error)).toMatch(/not have enough storage/i)
+  })
+
   it('rejects unsupported and empty files before reading import metadata', async () => {
     await expect(inspectExportFile(new File(['{}'], 'fixture.csv'))).rejects.toThrow(/\.json or \.txt/i)
     await expect(inspectExportFile(new File([], 'fixture.json'))).rejects.toThrow(/empty/i)
@@ -98,6 +103,33 @@ describe('Dexie export import', () => {
     expect(imported.storageName).toBe(targetName)
     await expect(loadImportedSession(storage)).resolves.toEqual(imported)
     expect(await Dexie.exists(targetName)).toBe(true)
+  })
+
+  it('imports only the selected tables', async () => {
+    const sourceName = 'dvx-export-selected-source-test'
+    const targetName = 'dvx-import-selected-target-test'
+    createdDatabases.add(sourceName)
+    createdDatabases.add(targetName)
+    const database = new Dexie(sourceName)
+    database.version(1).stores({ products: 'id', audit: 'id' })
+    await database.table('products').add({ id: 1, name: 'Coffee' })
+    await database.table('audit').add({ id: 1, event: 'created' })
+    const file = new File([await exportDB(database)], 'fixture.json', { type: 'application/json' })
+    database.close()
+
+    const preview = await inspectExportFile(file)
+    const imported = await replaceImportedSnapshot(file, preview, {
+      storage: memoryStorage(),
+      storageName: targetName,
+      tableNames: ['products'],
+    })
+
+    expect(imported.tables.map((table) => table.name)).toEqual(['products'])
+    const restored = new Dexie(targetName)
+    await restored.open()
+    expect(await restored.table('products').count()).toBe(1)
+    expect(await restored.table('audit').count()).toBe(0)
+    restored.close()
   })
 
   it('keeps the previous session when replacement fails', async () => {

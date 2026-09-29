@@ -24,15 +24,19 @@ export function ImportScreen({
   const [error, setError] = useState<string | null>(null)
   const [inspecting, setInspecting] = useState(false)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
+  const [selectedTableNames, setSelectedTableNames] = useState<string[]>([])
   const importing = progress !== null && !progress.done
 
   async function inspect(fileToInspect: File) {
     setError(null)
     setPreview(null)
     setFile(fileToInspect)
+    setSelectedTableNames([])
     setInspecting(true)
     try {
-      setPreview(await inspectExportFile(fileToInspect))
+      const inspected = await inspectExportFile(fileToInspect)
+      setPreview(inspected)
+      setSelectedTableNames(inspected.tables.map((table) => table.name))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The selected file could not be read.')
     } finally {
@@ -48,16 +52,20 @@ export function ImportScreen({
 
   async function importFile() {
     if (!file || !preview) return
+    const tables = preview.tables.filter((table) => selectedTableNames.includes(table.name))
     setError(null)
     setProgress({
-      totalTables: preview.tables.length,
+      totalTables: tables.length,
       completedTables: 0,
-      totalRows: preview.tables.reduce((sum, table) => sum + table.rowCount, 0),
+      totalRows: tables.reduce((sum, table) => sum + table.rowCount, 0),
       completedRows: 0,
       done: false,
     })
     try {
-      onImported(await replaceImportedSnapshot(file, preview, { onProgress: setProgress }))
+      onImported(await replaceImportedSnapshot(file, preview, {
+        onProgress: setProgress,
+        tableNames: selectedTableNames,
+      }))
     } catch (cause) {
       setProgress(null)
       setError(cause instanceof Error ? cause.message : 'Import failed unexpectedly.')
@@ -66,6 +74,9 @@ export function ImportScreen({
 
   const populatedStores = preview?.tables.filter((table) => table.rowCount > 0).length ?? 0
   const totalRows = preview?.tables.reduce((sum, table) => sum + table.rowCount, 0) ?? 0
+  const selectedRows = preview?.tables
+    .filter((table) => selectedTableNames.includes(table.name))
+    .reduce((sum, table) => sum + table.rowCount, 0) ?? 0
   const progressValue = progress?.totalRows
     ? Math.round((progress.completedRows / progress.totalRows) * 100)
     : 0
@@ -119,6 +130,32 @@ export function ImportScreen({
               <div><span>Stores</span><strong>{preview.tables.length}</strong><small>{populatedStores} with data</small></div>
               <div><span>Total rows</span><strong>{totalRows.toLocaleString()}</strong></div>
             </div>
+            <fieldset className="table-selection" disabled={importing}>
+              <legend>Tables to import</legend>
+              <div className="table-selection-actions">
+                <span>{selectedTableNames.length} selected · {selectedRows.toLocaleString()} rows</span>
+                <button onClick={() => setSelectedTableNames(preview.tables.map((table) => table.name))} type="button">Select all</button>
+                <button onClick={() => setSelectedTableNames([])} type="button">Clear</button>
+              </div>
+              <div className="table-selection-list">
+                {preview.tables.map((table) => {
+                  const checked = selectedTableNames.includes(table.name)
+                  return (
+                    <label key={table.name}>
+                      <input
+                        checked={checked}
+                        onChange={() => setSelectedTableNames((names) => (
+                          checked ? names.filter((name) => name !== table.name) : [...names, table.name]
+                        ))}
+                        type="checkbox"
+                      />
+                      <span>{table.name}</span>
+                      <small>{table.rowCount.toLocaleString()} rows</small>
+                    </label>
+                  )
+                })}
+              </div>
+            </fieldset>
             {progress && (
               <div className="import-progress" aria-live="polite">
                 <div><span>Importing into local extension storage</span><strong>{progressValue}%</strong></div>
@@ -133,12 +170,13 @@ export function ImportScreen({
                   setPreview(null)
                   setFile(null)
                   setProgress(null)
+                  setSelectedTableNames([])
                 }}
                 variant="ghost"
               >
                 Choose another
               </Button>
-              <Button disabled={importing} onClick={() => void importFile()} variant="primary">
+              <Button disabled={importing || selectedTableNames.length === 0} onClick={() => void importFile()} variant="primary">
                 {importing ? 'Importing…' : 'Import snapshot'}
               </Button>
             </div>

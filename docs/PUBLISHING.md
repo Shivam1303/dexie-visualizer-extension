@@ -1,32 +1,119 @@
-# Publishing to the Chrome Web Store
+# Publishing IndexedDB Workbench to the Chrome Web Store
 
-Everything here is copy-paste ready for the [Developer Dashboard](https://chrome.google.com/webstore/devconsole).
-Claims about data handling were checked against the source: there are no `fetch`,
-`XMLHttpRequest`, or external URL references anywhere in `src/`.
+A sequential walkthrough, from creating the developer account to a live listing.
+Everything in code blocks is copy-paste ready.
 
-## Build the upload
+Claims about data handling in this doc were verified against the source: there are no
+`fetch`, `XMLHttpRequest`, or external URL references anywhere in `src/`.
+
+---
+
+## What you need to supply
+
+The repo is submission-ready except for four things only you can provide:
+
+| Item | Where | Notes |
+|---|---|---|
+| Contact email | `docs/PRIVACY.md`, last line | Currently an empty HTML comment |
+| Privacy policy URL | Step 4 | Host `docs/PRIVACY.md` somewhere public |
+| Screenshots | Step 5 | 1–5 images at 1280×800 |
+| Small promo tile | Step 5 | 440×280 |
+
+The icons in `icons/` are functional placeholders generated from the app palette.
+Replace them when you want a designed identity — no build changes needed.
+
+---
+
+## Step 1 — Prepare the Google account
+
+1. Use (or create) the Google account that will own the listing. It is hard to
+   transfer later, so prefer one you'll keep — not a throwaway.
+2. **Enable 2-Step Verification** on it. Google requires this for Web Store
+   developers; you cannot publish without it.
+
+## Step 2 — Register as a developer
+
+1. Go to the [Developer Dashboard](https://chrome.google.com/webstore/devconsole).
+2. Accept the developer agreement.
+3. Pay the **one-time $5 registration fee** (non-refundable, card required). This
+   unlocks publishing and covers up to 20 items on the account.
+4. Open account settings and set:
+   - **Publisher display name** — shown on the listing as the author. Use your real
+     name or a company name; it is public.
+   - **Contact email** — then **verify it**. Unverified email blocks publishing.
+
+## Step 3 — Complete the trader declaration
+
+Required under the EU Digital Services Act; the dashboard will not let you publish
+publicly without it.
+
+- Declaring **trader** (publishing commercially / as a business) requires a physical
+  address and phone number, which are **displayed publicly on the listing**.
+- Declaring **non-trader** (personal, non-commercial) avoids publishing an address.
+
+Pick the one that is actually true for you. A free personal dev tool is normally
+non-trader, but this is your call and it is a legal declaration, not a preference.
+
+## Step 4 — Host the privacy policy
+
+1. Fill in the contact line at the bottom of `docs/PRIVACY.md`.
+2. Publish it at a stable public URL — GitHub Pages, a public gist, or any static
+   host. It must be reachable without a login.
+3. Keep the URL; you'll paste it in Step 9.
+
+Strictly speaking a policy is not required when you declare no data collection, but
+this extension reads website content and reviewers sometimes ask. Having one costs
+nothing and avoids a rejection round-trip.
+
+## Step 5 — Produce the store assets
+
+**Screenshots** — 1 to 5 images, **1280×800** (or 640×400). Shot list:
+
+1. The grid connected to a live tab, with the live-editing banner visible.
+2. A row open in the editor showing a staged change (`was → now`).
+3. The filter panel with a couple of type-aware filters applied.
+4. The import screen with an export's metadata under review.
+
+Use `test-page/index.html` as the subject — it seeds awkward data (real `Date`s, a
+`Blob`, nested structures, compound keys) that makes the tool look like it earns its
+place. Don't screenshot real user data.
+
+**Small promo tile** — **440×280**, required. The 1400×560 marquee is optional.
+
+## Step 6 — Verify the build, then package it
+
+Load the current build unpacked and confirm the rename and new icons took effect —
+this is the one thing the automated checks can't verify:
+
+```bash
+npm run build
+```
+
+`chrome://extensions` → Developer mode → **Load unpacked** → select `dist/`. Confirm:
+
+- the toolbar shows the mint icon, not a puzzle piece;
+- the card reads **IndexedDB Workbench**;
+- clicking the icon on a tab opens the workspace and connects.
+
+Then build the upload:
 
 ```bash
 npm run package
 ```
 
-Produces `release/indexeddb-workbench-<version>.zip`, rooted so `manifest.json` sits at
-the archive top level (the store rejects a zip that nests the extension in a folder).
-The script fails the build if the 128px icon is missing, if the manifest references an
-icon that is not in `dist/`, or if the root check fails, and warns about source maps.
+Produces `release/indexeddb-workbench-<version>.zip`, rooted so `manifest.json` is at
+the archive top level — the store rejects a zip that nests the extension inside a
+folder. The script hard-fails on a missing 128px icon, a manifest referencing an icon
+absent from `dist/`, or a failed root check, and warns about leftover source maps.
 
-**Bump `version` in `manifest.json` before every upload** — the store rejects a
-re-upload of an existing version number.
+## Step 7 — Create the item and upload
 
-## One-time account setup
+1. Dashboard → **Items** → **Add new item**.
+2. Upload `release/indexeddb-workbench-1.0.0.zip`.
+3. If the upload is rejected, it is almost always the archive root or a manifest
+   error — the message names the field.
 
-1. Google account with **2-step verification enabled** (required for developers).
-2. Register at the dashboard — **$5 one-time fee**, non-refundable.
-3. Verify the contact email.
-4. Complete the **trader / non-trader declaration** (EU Digital Services Act).
-   Declaring "trader" publishes a real address and phone number on the listing.
-
-## Listing copy
+## Step 8 — Fill the Store listing tab
 
 **Name:** `IndexedDB Workbench` — see [why](#why-the-name-is-indexeddb-workbench).
 
@@ -79,17 +166,14 @@ update, and delete rows. It does not create rows, export a modified snapshot, or
 merge an import into a live site.
 ```
 
-**Category:** Developer Tools · **Language:** English
+Then: **Category** = Developer Tools · **Language** = English · upload the
+screenshots, promo tile, and the 128px icon from Step 5.
 
-## Permission justifications
+Keep the irreversible-writes warning in the description. It is honest, it pre-empts
+one-star surprises, and it protects you from a complaint about undisclosed
+destructive behavior.
 
-Paste each into the matching field on the **Privacy practices** tab.
-
-| Permission | Justification |
-|---|---|
-| `activeTab` | Granted only when the user clicks the extension's toolbar icon on a tab. It is the mechanism by which the extension reads and writes that one tab's IndexedDB. The extension deliberately requests no host permissions, so it has no standing access to any site. |
-| `scripting` | Used to inject the IndexedDB reader/writer into the tab the user explicitly activated. A page cannot read another origin's IndexedDB, so the code must run in the page. It is injected programmatically rather than declared as a content script, so nothing is injected anywhere until the user clicks. |
-| `storage` | Stores small local session metadata (the selected database/store and the identifier of the current imported snapshot) via `chrome.storage.local`. No browsing history or site content is written here, and nothing is transmitted. |
+## Step 9 — Fill the Privacy practices tab
 
 **Single purpose:**
 
@@ -98,46 +182,75 @@ Inspect and edit the IndexedDB databases of a tab the user explicitly activates,
 or of a Dexie export the user imports.
 ```
 
-## Privacy practices answers
+**Permission justifications** — one field per permission:
 
-The extension makes no network requests of any kind. Everything stays on the
-device, so the "data collection" declarations stay unchecked, and all three required
-certifications are truthfully yes:
+| Permission | Justification |
+|---|---|
+| `activeTab` | Granted only when the user clicks the extension's toolbar icon on a tab. It is the mechanism by which the extension reads and writes that one tab's IndexedDB. The extension deliberately requests no host permissions, so it has no standing access to any site. |
+| `scripting` | Used to inject the IndexedDB reader/writer into the tab the user explicitly activated. A page cannot read another origin's IndexedDB, so the code must run in the page. It is injected programmatically rather than declared as a content script, so nothing is injected anywhere until the user clicks. |
+| `storage` | Stores small local session metadata (the selected database/store and the identifier of the current imported snapshot) via `chrome.storage.local`. No browsing history or site content is written here, and nothing is transmitted. |
+
+**Data usage.** The extension makes no network requests of any kind, so leave the
+data-collection declarations unchecked. All three required certifications are
+truthfully yes:
 
 - Not sold or transferred to third parties beyond approved use cases — **yes**
 - Not used or transferred for purposes unrelated to the single purpose — **yes**
 - Not used or transferred to determine creditworthiness or for lending — **yes**
 
-**Privacy policy URL.** Not strictly required when you declare no collection, but the
-extension does read website content, and reviewers sometimes ask. `docs/PRIVACY.md`
-is a ready-to-publish policy — host it (GitHub Pages, a gist, any static URL) and
-paste the link. Cheap insurance against a round-trip rejection.
+Paste the privacy policy URL from Step 4.
 
-## Screenshots
+> If you ever add analytics, crash reporting, or any remote call, this entire tab
+> becomes false and must be revised before the next upload.
 
-1–5 images at **1280×800** (or 640×400). A useful shot list:
+## Step 10 — Choose visibility
 
-1. The grid connected to a live tab, with the live-editing banner visible.
-2. A row open in the editor with a staged change showing `was → now`.
-3. The filter panel with a couple of type-aware filters applied.
-4. The import screen with an export's metadata under review.
+| Option | Who can install |
+|---|---|
+| **Public** | Anyone; appears in search and browsing |
+| **Unlisted** | Anyone with the direct link; not in search |
+| **Private** | Named testers or your Google Workspace domain only |
 
-Also required: a **440×280** small promo tile. The 1400×560 marquee is optional.
+**Recommended: publish Unlisted first.** This tool writes irreversibly to live
+databases. Unlisted gives you a genuine store install and update flow without a
+public audience for the first bug. Flip to Public after a week of real use.
 
-## Submitting
+Also set the distribution regions.
 
-Upload the zip → fill the listing → set visibility → submit. Most reviews clear
-inside 24 hours; `scripting` plus first-time developer status can stretch it to
-several days.
+## Step 11 — Submit for review
 
-**Recommendation:** publish **unlisted** first and use it yourself for a week. This
-tool writes irreversibly to live databases, and an unlisted listing is a real install
-from the store without a public audience for the first bug.
+Hit **Submit for review**. You can optionally defer publishing so an approved item
+waits until you press publish.
 
-## Updating
+Expect under 24 hours in the common case. `scripting` plus first-time-developer
+status can stretch it to several days. You'll get an email either way.
 
-Bump `manifest.json`, `npm run package`, upload, resubmit. Updates support
-**partial rollout** by percentage, and a published version can be reverted.
+## Step 12 — If it gets rejected
+
+Rejections name a policy section. The likely ones here, and the fix:
+
+| Reason | Fix |
+|---|---|
+| Permission not justified | Expand the Step 9 text for the named permission; be concrete about the user action that triggers it |
+| Single purpose unclear | Tighten the single-purpose sentence; don't describe two products |
+| Missing/insufficient privacy disclosure | Confirm the policy URL loads publicly and matches what the listing declares |
+| Metadata / keyword spam | Remove repeated keywords from the description |
+| Affiliation or trademark concern | The rename in Step 8 already addresses the original risk here |
+
+Fix, then resubmit the same version — a rejected item does not need a version bump.
+A *published* item does.
+
+## Updating later
+
+1. Bump `version` in `manifest.json` (the store rejects a re-upload of an existing
+   version number).
+2. `npm run package`
+3. Upload the new zip to the same item, resubmit.
+
+Updates support **partial rollout** by percentage, and a published version can be
+reverted if something breaks.
+
+---
 
 ## Why the name is "IndexedDB Workbench"
 

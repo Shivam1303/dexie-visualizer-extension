@@ -122,8 +122,9 @@ export class ImportedDexieSource implements DataSource {
   async listStores(dbName: string): Promise<StoreMeta[]> {
     this.assertDatabase(dbName)
     const database = await this.databasePromise
+    const importedTableNames = new Set(this.session.tables.map((table) => table.name))
     return Promise.all(
-      database.tables.map(async (table) => ({
+      database.tables.filter((table) => importedTableNames.has(table.name)).map(async (table) => ({
         name: table.name,
         keyPath: (table.schema.primKey.keyPath || null) as StoreMeta['keyPath'],
         autoIncrement: table.schema.primKey.auto,
